@@ -43,6 +43,7 @@
   "dependencies": {
     "@justinhaaheim/version-manager": "github:justinhaaheim/version-manager#0.5.1",
     "fastmcp": "^1.27.3",
+    "ynab": "2.10.0",
     "zod": "^3.24.4"
   },
   "devDependencies": {
