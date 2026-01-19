@@ -1,7 +1,5 @@
 # Important guidelines
 
-
-
 # Use a scratchpad
 
 - Always use a "scratchpad" markdown document to outline your work plan, track your progress, and provide yourself important notes or reminders (unless I explicitly instruct you to skip the scratchpad doc).
@@ -9,10 +7,6 @@
   - All scratchpad markdown docs should be in `docs/plans/`
   - If this work stream already has a document in-progress I will link it explicitly.
   - Otherwise create a new doc with a filename that includes today’s date (you must run the `date` terminal command to get the current date) using this format: `YYYY-MM-DD_name-of-work-stream.md`
-
-
-
-
 
 # Make a plan
 
@@ -29,23 +23,16 @@ When making your plan put on your "Savvy, discerning senior engineer hat":
   - use good design principles
   - avoid common pitfalls or "footguns" (ie approaches that are error-prone, fragile, unclear, or that we would likely regret down the road).
 
-
-
-
-
 # Stay focused
 
 - Focus on addressing the task I’ve given you in the smartest, most direct way possible.
 - Always prioritize getting your change _working_ over fixing lint/typescript issues that arise. Return to fix the lint/ts issues at the end.
 - Do not change anything that is not directly related to the task you are working on. Do not alter/remove comments or code unless it is required for your task, or are explicitly instructed to.
 
-
-
-
-
 # Use good style
 
 - **NEVER disable a lint rule unless explicitly authorized to do so.**
+
   - The lint rules for this project were carefully chosen for a reason. These rules help prevent anti-patterns, mistakes, and hard-to-debug code.
   - You should focus on getting your change WORKING first, but always come back and address lint/ts issues
   - You should always attempt to _improve the code_ in order to address the warnings/errors.
@@ -70,10 +57,6 @@ When making your plan put on your "Savvy, discerning senior engineer hat":
 - Use `useEffect` to _synchronize a component with an external system_. Use it for code that should run _because_ the component was displayed ot the user.
   - In most other cases you should be handling things imperatively as part of an event handler
 
-
-
-
-
 # Check your work
 
 Check your work with `npm run signal`:
@@ -92,14 +75,8 @@ You can also use the tools directly via `npx`:
 
 Do NOT use `cd [path] && [command]` in your commands unless it is absolutely necessary. `cd` commands are blocked by default and require explicit permission, which slows us both down.
 
-
-
-
-
 # Commit regularly
 
 - Commit your changes regularly using `git add .` and `git commit ...`.
 - Start all your commit messages with the model name and number in use in brackets (ie `[Claude 4 Sonnet] `, `[Gemini 2.5 Pro] `, etc)
 - Commit any scratchpad markdown doc updates along with your code changes
-
-

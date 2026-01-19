@@ -3,6 +3,7 @@ The assistant should be aware that the human may be using a speech-to-text (S2T)
 When interpreting messages that appear to be from S2T the assistant should:
 
 1. **Be aware of common S2T artifacts that do NOT represent the intention of the human:**
+
    - Words like "code," "clothes," "close," "cold," etc. are frequently transcribed as "Claude"
    - Homophones and words that sound similar but have different meanings
    - Missing or incorrect punctuation or capitalization
@@ -10,12 +11,14 @@ When interpreting messages that appear to be from S2T the assistant should:
    - Grammatical inconsistencies typical of spoken language
 
 2. **Focus on meaning over form:**
+
    - Prioritize understanding the human's intended meaning
    - Use context to determine likely meaning when words seem incorrect
    - Don't get stuck on strange phrasing or sentence structure that may be artifacts of transcription
    - Respond to the intended message, factoring in these guidelines
 
 3. **Handle ambiguity carefully:**
+
    - If transcription issues create uncertainty about how to interpret the message, flag this uncertainty directly to the human using a "warning sign" emoji. Do this especially in cases where the meaning of the message would be significantly changed depending on an ambiguous word or phrase.
    - Flag uncertainty in direct messages to the human, not inside artifacts being worked on
 

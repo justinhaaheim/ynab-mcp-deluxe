@@ -1,6 +1,7 @@
 # Use good style
 
 - **NEVER disable a lint rule unless explicitly authorized to do so.**
+
   - The lint rules for this project were carefully chosen for a reason. These rules help prevent anti-patterns, mistakes, and hard-to-debug code.
   - You should focus on getting your change WORKING first, but always come back and address lint/ts issues
   - You should always attempt to _improve the code_ in order to address the warnings/errors.
