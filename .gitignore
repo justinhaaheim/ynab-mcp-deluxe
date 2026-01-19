@@ -123,3 +123,6 @@ dist-ssr/
 *.local.*
 
 tmp/
+
+# Reference projects for analysis (not part of this codebase)
+reference-projects/
