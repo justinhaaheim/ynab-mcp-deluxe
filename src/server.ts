@@ -15,6 +15,7 @@ server.addTool({
     title: 'Addition',
   },
   description: 'Add two numbers',
+  // eslint-disable-next-line @typescript-eslint/require-await
   execute: async (args) => {
     return String(add(args.a, args.b));
   },
@@ -26,6 +27,7 @@ server.addTool({
 });
 
 server.addResource({
+  // eslint-disable-next-line @typescript-eslint/require-await
   async load() {
     return {
       text: 'Example log content',
@@ -45,12 +47,13 @@ server.addPrompt({
     },
   ],
   description: 'Generate a Git commit message',
+  // eslint-disable-next-line @typescript-eslint/require-await
   load: async (args) => {
-    return `Generate a concise but descriptive commit message for these changes:\n\n${args.changes}`;
+    return `Generate a concise but descriptive commit message for these changes:\n\n${args['changes']}`;
   },
   name: 'git-commit',
 });
 
-server.start({
+void server.start({
   transportType: 'stdio',
 });
