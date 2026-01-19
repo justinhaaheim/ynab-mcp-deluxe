@@ -35,19 +35,13 @@ The server exposes three types of capabilities:
 
 Use Zod schemas for parameter validation on tools and prompts.
 
-## Code Conventions
-
-- **No barrel files**: Never use `index.ts` re-exports. Import directly from specific files.
-- **ESM modules**: Use `.js` extensions in imports (e.g., `import {add} from './add.js'`)
-- **Strict TypeScript**: All strict flags enabled including `noUncheckedIndexedAccess` and `noPropertyAccessFromIndexSignature`
-
-## Commit Workflow
-
-1. Run `bun run signal` before committing (pre-commit hook enforces this)
-2. Call `git add` and `git commit` separately
-3. Use single quotes in commit messages: `git commit -m 'message'`
-
 ## Runtime
 
 - **Runtime/Package Manager**: Bun (not npm/yarn)
 - **Module System**: ESM throughout
+
+## Important General Guidelines
+
+Always follow the important guidelines in @docs/prompts/IMPORTANT_GUIDELINES_INLINED.md 
+
+Be aware that messages from the user may contain speech-to-text (S2T) artifacts. Ask for clarification if something seems ambiguous or inconsistent with other parts of the message/project, especially if it is a consequential to the overall message. S2T Guidelines: @docs/prompts/S2T_GUIDELINES.md
