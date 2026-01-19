@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(cp:*)",
+      "Bash(grep:*)",
+      "Bash(head:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+
+      "Bash(git add:*)",
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)",
+      "Bash(git fetch:*)",
+      "Bash(git log:*)",
+      "Bash(git rebase:*)",
+      "Bash(git show:*)",
+      "Bash(git status:*)",
+
+      "Bash(npm install:*)",
+      "Bash(npm list:*)",
+      "Bash(npm search:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm update:*)",
+      "Bash(npm view:*)",
+
+      "Bash(bun add:*)",
+      "Bash(bun install:*)",
+      "Bash(bun list:*)",
+      "Bash(bun remove:*)",
+      "Bash(bun run signal)",
+      "Bash(bun run build)",
+      "Bash(bun run start)",
+      "Bash(bun search:*)",
+      "Bash(bun test:*)",
+      "Bash(bun uninstall:*)",
+      "Bash(bun update:*)",
+      "Bash(bun view:*)",
+      "Bash(bun pm:*)",
+
+      "Bash(npx @justinhaaheim/version-manager)",
+      "Bash(npx @tamagui/cli check:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npx expo install:*)",
+      "Bash(npx prettier:*)",
+      "Bash(npx tsc:*)",
+
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr view:*)",
+
+      "Bash(xcrun simctl runtime:*)",
+      "Bash(xcrun simctl list:*)",
+
+      "Bash(maestro test:*)",
+
+      "mcp__ide__getDiagnostics",
+
+      "WebSearch",
+      "WebFetch(domain:docs.expo.dev)",
+      "WebFetch(domain:expo.dev)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:developers.google.com)",
+      "WebFetch(domain:stackoverflow.com)",
+      "WebFetch(domain:tamagui.dev)",
+
+      "Read(/Users/jhaa/Dropbox/Screenshots/**)"
+    ],
+    "deny": [],
+    "defaultMode": "acceptEdits"
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "terminal-notifier -title \"Claude Code - $(basename \"$PWD\")\" -subtitle \"Input Required\" -message \"Claude is waiting for your input\" -sound default"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read file_path; if [[ \"$file_path\" != \"$CLAUDE_PROJECT_DIR\"/* ]]; then echo \"[PostToolUse] Skipping lint/prettier - file outside CLAUDE_PROJECT_DIR: $file_path\"; else if [[ \"$file_path\" =~ \\.(ts|tsx|js|jsx|cjs|mjs)$ ]]; then bun run lint:fix:file -- \"$file_path\"; fi; bun run prettier --write -u \"$file_path\"; fi; }"
+          }
+        ]
+      }
+    ]
+  }
+}
