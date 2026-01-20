@@ -9,8 +9,11 @@ import type {
   AccountSelector,
   BudgetSelector,
   CategoryGroupResponse,
+  CategorySelector,
+  CreateTransactionInput,
   EnrichedTransaction,
   PayeeHistoryResponse,
+  PayeeSelector,
   TransactionSortBy,
   TransactionUpdate,
   UpdateTransactionsResult,
@@ -29,7 +32,7 @@ import {
   sortTransactions,
   validateSelector,
 } from './helpers.js';
-import {ynabClient} from './ynab-client.js';
+import {isReadOnlyMode, ynabClient} from './ynab-client.js';
 
 const server = new FastMCP({
   name: 'YNAB MCP Server',
@@ -638,6 +641,650 @@ Returns updated transactions and any failures with error messages.`,
       .min(1)
       .max(100)
       .describe('Array of transaction updates'),
+  }),
+});
+
+// ============================================================================
+// Tool 7: get_payees
+// ============================================================================
+
+server.addTool({
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: true,
+    title: 'Get Payees',
+  },
+  description: `List all payees from a YNAB budget.
+
+Returns payee names and IDs. Useful for finding payee IDs when creating transactions.
+
+**Parameters:**
+
+budget - Which budget (uses default if omitted)
+
+query - Optional JMESPath expression
+
+**Examples:**
+
+All payees:
+  {}
+
+Search for a payee:
+  {"query": "[?contains(name, 'Amazon')]"}`,
+  execute: async (args) => {
+    try {
+      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+
+      const budgetId = await ynabClient.resolveBudgetId(
+        args.budget as BudgetSelector | undefined,
+      );
+
+      const payees = await ynabClient.getPayees(budgetId);
+
+      // Apply JMESPath if provided
+      let result: unknown = payees;
+      if (args.query !== undefined && args.query !== '') {
+        result = applyJMESPath(payees, args.query);
+      }
+
+      return JSON.stringify(result, null, 2);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return createErrorResponse(message);
+    }
+  },
+  name: 'get_payees',
+  parameters: z.object({
+    budget: BudgetSelectorSchema,
+    query: z.string().optional().describe('Optional JMESPath expression'),
+  }),
+});
+
+// ============================================================================
+// Tool 8: get_scheduled_transactions
+// ============================================================================
+
+server.addTool({
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: true,
+    title: 'Get Scheduled Transactions',
+  },
+  description: `List scheduled (recurring) transactions from a YNAB budget.
+
+Returns recurring transactions with frequency, next date, and amounts.
+
+**Parameters:**
+
+budget - Which budget (uses default if omitted)
+
+query - Optional JMESPath expression
+
+**Examples:**
+
+All scheduled transactions:
+  {}
+
+Monthly bills only:
+  {"query": "[?frequency == 'monthly']"}`,
+  execute: async (args) => {
+    try {
+      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+
+      const budgetId = await ynabClient.resolveBudgetId(
+        args.budget as BudgetSelector | undefined,
+      );
+
+      const scheduled = await ynabClient.getScheduledTransactions(budgetId);
+
+      // Apply JMESPath if provided
+      let result: unknown = scheduled;
+      if (args.query !== undefined && args.query !== '') {
+        result = applyJMESPath(scheduled, args.query);
+      }
+
+      return JSON.stringify(result, null, 2);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return createErrorResponse(message);
+    }
+  },
+  name: 'get_scheduled_transactions',
+  parameters: z.object({
+    budget: BudgetSelectorSchema,
+    query: z.string().optional().describe('Optional JMESPath expression'),
+  }),
+});
+
+// ============================================================================
+// Tool 9: get_months
+// ============================================================================
+
+server.addTool({
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: true,
+    title: 'Get Budget Months',
+  },
+  description: `List budget months with summary information.
+
+Returns monthly summaries including income, budgeted, activity, and age of money.
+
+**Parameters:**
+
+budget - Which budget (uses default if omitted)
+
+query - Optional JMESPath expression
+
+**Examples:**
+
+All months:
+  {}
+
+Recent months with positive income:
+  {"query": "[?income > \`0\`] | [-5:]"}`,
+  execute: async (args) => {
+    try {
+      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+
+      const budgetId = await ynabClient.resolveBudgetId(
+        args.budget as BudgetSelector | undefined,
+      );
+
+      const months = await ynabClient.getBudgetMonths(budgetId);
+
+      // Apply JMESPath if provided
+      let result: unknown = months;
+      if (args.query !== undefined && args.query !== '') {
+        result = applyJMESPath(months, args.query);
+      }
+
+      return JSON.stringify(result, null, 2);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return createErrorResponse(message);
+    }
+  },
+  name: 'get_months',
+  parameters: z.object({
+    budget: BudgetSelectorSchema,
+    query: z.string().optional().describe('Optional JMESPath expression'),
+  }),
+});
+
+// ============================================================================
+// Tool 10: get_budget_summary
+// ============================================================================
+
+server.addTool({
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: true,
+    title: 'Get Budget Summary',
+  },
+  description: `Get detailed budget summary for a specific month.
+
+Shows income, budgeted amounts, activity, to-be-budgeted, age of money, and category details. Useful for understanding budget health and identifying overspent categories.
+
+**Parameters:**
+
+budget - Which budget (uses default if omitted)
+
+month - The budget month (default: current month)
+  - "current" or omit for current month
+  - "YYYY-MM-01" for specific month (use first of month)
+
+include_hidden - Include hidden categories (default false)
+
+query - Optional JMESPath for filtering
+
+**Examples:**
+
+Current month summary:
+  {}
+
+Specific month:
+  {"month": "2026-01-01"}
+
+Only overspent categories:
+  {"query": "categories[?balance < \`0\`]"}
+
+Categories with goals:
+  {"query": "categories[?goal_type != null]"}`,
+  execute: async (args) => {
+    try {
+      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+
+      const budgetId = await ynabClient.resolveBudgetId(
+        args.budget as BudgetSelector | undefined,
+      );
+
+      // Determine month - use current if not specified
+      let month = args.month;
+      if (month === undefined || month === '' || month === 'current') {
+        const now = new Date();
+        month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      }
+
+      const summary = await ynabClient.getBudgetMonth(budgetId, month);
+
+      // Filter hidden categories if needed
+      const includeHidden = args.include_hidden ?? false;
+      if (!includeHidden) {
+        summary.categories = summary.categories.filter((c) => !c.hidden);
+      }
+
+      // Apply JMESPath if provided
+      let result: unknown = summary;
+      if (args.query !== undefined && args.query !== '') {
+        result = applyJMESPath(summary, args.query);
+      }
+
+      return JSON.stringify(result, null, 2);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return createErrorResponse(message);
+    }
+  },
+  name: 'get_budget_summary',
+  parameters: z.object({
+    budget: BudgetSelectorSchema,
+    include_hidden: z
+      .boolean()
+      .default(false)
+      .optional()
+      .describe('Include hidden categories'),
+    month: z
+      .string()
+      .optional()
+      .describe(
+        'Budget month (YYYY-MM-01 format, or "current" for current month)',
+      ),
+    query: z.string().optional().describe('Optional JMESPath expression'),
+  }),
+});
+
+// ============================================================================
+// Tool 11: create_transaction
+// ============================================================================
+
+const CategorySelectorSchema = z
+  .object({
+    id: z.string().optional().describe('Exact category ID'),
+    name: z.string().optional().describe('Category name (case-insensitive)'),
+  })
+  .optional()
+  .describe('Category selector');
+
+const PayeeSelectorSchema = z
+  .object({
+    id: z.string().optional().describe('Exact payee ID'),
+    name: z
+      .string()
+      .optional()
+      .describe('Payee name (creates new if not found)'),
+  })
+  .optional()
+  .describe('Payee selector');
+
+server.addTool({
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: 'Create Transaction',
+  },
+  description: `Create a new transaction in YNAB.
+${isReadOnlyMode() ? '\n**⚠️ SERVER IS IN READ-ONLY MODE - This operation will fail**\n' : ''}
+**Parameters:**
+
+budget - Which budget (uses default if omitted)
+
+account (required) - Account selector {"name": "..."} or {"id": "..."}
+
+date (required) - Transaction date (ISO format: YYYY-MM-DD)
+
+amount (required) - Amount in MILLIUNITS (integer)
+  - Negative for outflow (expenses): -45990 = $45.99 expense
+  - Positive for inflow (income): 300000 = $300.00 income
+
+payee - Payee selector {"name": "..."} or {"id": "..."}
+  - If using name and payee doesn't exist, YNAB creates it
+
+category - Category selector {"name": "..."} or {"id": "..."}
+
+memo - Optional memo/note
+
+cleared - Whether cleared (default: false)
+
+approved - Whether approved (default: false)
+
+flag_color - Optional flag color
+
+**Examples:**
+
+Coffee purchase ($5.50):
+  {
+    "account": {"name": "Checking"},
+    "date": "2026-01-19",
+    "amount": -5500,
+    "payee": {"name": "Starbucks"},
+    "category": {"name": "Coffee"}
+  }
+
+Paycheck ($3000):
+  {
+    "account": {"name": "Checking"},
+    "date": "2026-01-15",
+    "amount": 3000000,
+    "payee": {"name": "Employer"},
+    "category": {"name": "Ready to Assign"},
+    "approved": true,
+    "cleared": true
+  }`,
+  execute: async (args) => {
+    try {
+      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+      validateSelector(args.account as AccountSelector, 'Account');
+
+      const budgetId = await ynabClient.resolveBudgetId(
+        args.budget as BudgetSelector | undefined,
+      );
+
+      // Resolve account (required)
+      const accountId = await ynabClient.resolveAccountId(
+        budgetId,
+        args.account as AccountSelector,
+      );
+
+      // Resolve category if provided
+      let categoryId: string | undefined;
+      const hasCategoryName =
+        args.category?.name !== undefined && args.category.name !== '';
+      const hasCategoryId =
+        args.category?.id !== undefined && args.category.id !== '';
+      if (args.category !== undefined && (hasCategoryName || hasCategoryId)) {
+        categoryId = await ynabClient.resolveCategoryId(
+          budgetId,
+          args.category as CategorySelector,
+        );
+      }
+
+      // Resolve payee if provided
+      let payeeId: string | undefined;
+      let payeeName: string | undefined;
+      const hasPayeeName =
+        args.payee?.name !== undefined && args.payee.name !== '';
+      const hasPayeeId = args.payee?.id !== undefined && args.payee.id !== '';
+      if (args.payee !== undefined && (hasPayeeName || hasPayeeId)) {
+        const resolvedPayeeId = await ynabClient.resolvePayeeId(
+          budgetId,
+          args.payee as PayeeSelector,
+        );
+        if (resolvedPayeeId !== null) {
+          payeeId = resolvedPayeeId;
+        } else if (hasPayeeName) {
+          // Payee not found, use name to create new
+          payeeName = args.payee.name;
+        }
+      }
+
+      const input: CreateTransactionInput = {
+        account_id: accountId,
+        amount: args.amount,
+        approved: args.approved,
+        category_id: categoryId,
+        cleared: args.cleared,
+        date: args.date,
+        flag_color: args.flag_color,
+        memo: args.memo,
+        payee_id: payeeId,
+        payee_name: payeeName,
+      };
+
+      const created = await ynabClient.createTransaction(budgetId, input);
+
+      return JSON.stringify(
+        {
+          message: 'Transaction created successfully',
+          transaction: created,
+        },
+        null,
+        2,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return createErrorResponse(message);
+    }
+  },
+  name: 'create_transaction',
+  parameters: z.object({
+    account: z
+      .object({
+        id: z.string().optional().describe('Exact account ID'),
+        name: z.string().optional().describe('Account name (case-insensitive)'),
+      })
+      .describe('Account selector (required)'),
+    amount: z
+      .number()
+      .int()
+      .describe(
+        'Amount in milliunits (negative for outflow, positive for inflow)',
+      ),
+    approved: z.boolean().optional().describe('Whether approved'),
+    budget: BudgetSelectorSchema,
+    category: CategorySelectorSchema,
+    cleared: z.boolean().optional().describe('Whether cleared'),
+    date: z.string().describe('Transaction date (YYYY-MM-DD)'),
+    flag_color: z
+      .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple'])
+      .optional()
+      .describe('Flag color'),
+    memo: z.string().optional().describe('Memo/note'),
+    payee: PayeeSelectorSchema,
+  }),
+});
+
+// ============================================================================
+// Tool 12: delete_transaction
+// ============================================================================
+
+server.addTool({
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: 'Delete Transaction',
+  },
+  description: `Delete a transaction from YNAB.
+${isReadOnlyMode() ? '\n**⚠️ SERVER IS IN READ-ONLY MODE - This operation will fail**\n' : ''}
+**Parameters:**
+
+budget - Which budget (uses default if omitted)
+
+transaction_id (required) - The ID of the transaction to delete
+
+**Example:**
+
+  {"transaction_id": "abc123-def456"}`,
+  execute: async (args) => {
+    try {
+      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+
+      const budgetId = await ynabClient.resolveBudgetId(
+        args.budget as BudgetSelector | undefined,
+      );
+
+      const result = await ynabClient.deleteTransaction(
+        budgetId,
+        args.transaction_id,
+      );
+
+      return JSON.stringify(
+        {
+          deleted_transaction: result.deleted,
+          message: 'Transaction deleted successfully',
+        },
+        null,
+        2,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return createErrorResponse(message);
+    }
+  },
+  name: 'delete_transaction',
+  parameters: z.object({
+    budget: BudgetSelectorSchema,
+    transaction_id: z.string().describe('Transaction ID to delete'),
+  }),
+});
+
+// ============================================================================
+// Tool 13: import_transactions
+// ============================================================================
+
+server.addTool({
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: 'Import Transactions',
+  },
+  description: `Trigger import of transactions from linked financial institutions.
+${isReadOnlyMode() ? '\n**⚠️ SERVER IS IN READ-ONLY MODE - This operation will fail**\n' : ''}
+This initiates a sync with linked bank accounts to import new transactions.
+
+**Parameters:**
+
+budget - Which budget (uses default if omitted)
+
+**Example:**
+
+  {}`,
+  execute: async (args) => {
+    try {
+      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+
+      const budgetId = await ynabClient.resolveBudgetId(
+        args.budget as BudgetSelector | undefined,
+      );
+
+      const result = await ynabClient.importTransactions(budgetId);
+
+      return JSON.stringify(
+        {
+          imported_count: result.imported_count,
+          message:
+            result.imported_count > 0
+              ? `Imported ${result.imported_count} transaction(s)`
+              : 'No new transactions to import',
+          transaction_ids: result.transaction_ids,
+        },
+        null,
+        2,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return createErrorResponse(message);
+    }
+  },
+  name: 'import_transactions',
+  parameters: z.object({
+    budget: BudgetSelectorSchema,
+  }),
+});
+
+// ============================================================================
+// Tool 14: update_category_budget
+// ============================================================================
+
+server.addTool({
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: 'Update Category Budget',
+  },
+  description: `Update the budgeted amount for a category in a specific month.
+${isReadOnlyMode() ? '\n**⚠️ SERVER IS IN READ-ONLY MODE - This operation will fail**\n' : ''}
+Use this to allocate funds to categories or move money between categories.
+
+**Parameters:**
+
+budget - Which budget (uses default if omitted)
+
+month (required) - Budget month in ISO format (first of month, e.g., "2026-01-01")
+
+category (required) - Category selector {"name": "..."} or {"id": "..."}
+
+budgeted (required) - The total amount to budget in MILLIUNITS
+  - This SETS the total, not an increment
+  - Example: 500000 to budget $500.00 total
+
+**Examples:**
+
+Set Groceries budget to $600:
+  {
+    "month": "2026-01-01",
+    "category": {"name": "Groceries"},
+    "budgeted": 600000
+  }
+
+Fund emergency fund with $1000:
+  {
+    "month": "2026-01-01",
+    "category": {"name": "Emergency Fund"},
+    "budgeted": 1000000
+  }`,
+  execute: async (args) => {
+    try {
+      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+      validateSelector(args.category as CategorySelector, 'Category');
+
+      const budgetId = await ynabClient.resolveBudgetId(
+        args.budget as BudgetSelector | undefined,
+      );
+
+      // Resolve category
+      const categoryId = await ynabClient.resolveCategoryId(
+        budgetId,
+        args.category as CategorySelector,
+      );
+
+      const result = await ynabClient.updateCategoryBudget(
+        budgetId,
+        args.month,
+        categoryId,
+        args.budgeted,
+      );
+
+      return JSON.stringify(
+        {
+          category: result,
+          message: `Successfully updated ${result.name} budget to ${result.budgeted_currency}`,
+        },
+        null,
+        2,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return createErrorResponse(message);
+    }
+  },
+  name: 'update_category_budget',
+  parameters: z.object({
+    budget: BudgetSelectorSchema,
+    budgeted: z
+      .number()
+      .int()
+      .describe('Amount to budget in milliunits (e.g., 500000 = $500)'),
+    category: z
+      .object({
+        id: z.string().optional().describe('Exact category ID'),
+        name: z
+          .string()
+          .optional()
+          .describe('Category name (case-insensitive)'),
+      })
+      .describe('Category selector (required)'),
+    month: z.string().describe('Budget month (YYYY-MM-01 format)'),
   }),
 });
 

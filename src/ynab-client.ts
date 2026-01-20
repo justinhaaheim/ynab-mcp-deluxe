@@ -5,12 +5,19 @@
 import type {
   AccountSelector,
   BudgetSelector,
+  CategorySelector,
+  CreateTransactionInput,
   EnrichedAccount,
+  EnrichedBudgetMonthDetail,
   EnrichedBudgetSummary,
   EnrichedCategory,
+  EnrichedMonthCategory,
+  EnrichedMonthSummary,
   EnrichedPayee,
+  EnrichedScheduledTransaction,
   EnrichedSubTransaction,
   EnrichedTransaction,
+  PayeeSelector,
   TransactionUpdate,
 } from './types.js';
 
@@ -22,9 +29,36 @@ import {
   type CategoryGroupWithCategories,
   type CurrencyFormat,
   type Payee,
+  TransactionClearedStatus,
   type TransactionDetail,
+  type TransactionFlagColor,
   utils,
 } from 'ynab';
+
+// ============================================================================
+// Read-Only Mode Support
+// ============================================================================
+
+/**
+ * Check if the server is running in read-only mode
+ */
+export function isReadOnlyMode(): boolean {
+  const value = process.env['YNAB_READ_ONLY'];
+  return value === 'true' || value === '1';
+}
+
+/**
+ * Assert that write operations are allowed
+ * @throws Error if read-only mode is enabled
+ */
+export function assertWriteAllowed(operation: string): void {
+  if (isReadOnlyMode()) {
+    throw new Error(
+      `Write operation "${operation}" blocked: Server is in read-only mode. ` +
+        `Set YNAB_READ_ONLY=false to enable writes.`,
+    );
+  }
+}
 
 /**
  * Cached data for a budget
@@ -102,10 +136,21 @@ class YnabClient {
   async resolveBudgetId(selector?: BudgetSelector): Promise<string> {
     const budgets = await this.getBudgets();
 
-    // If no selector provided, use last-used or error if multiple
+    // If no selector provided, check env var, then last-used, then single budget
     const hasName = selector?.name !== undefined && selector.name !== '';
     const hasId = selector?.id !== undefined && selector.id !== '';
     if (selector === undefined || (!hasName && !hasId)) {
+      // Check for YNAB_BUDGET_ID environment variable
+      const envBudgetId = process.env['YNAB_BUDGET_ID'];
+      if (envBudgetId !== undefined && envBudgetId !== '') {
+        const envBudget = budgets.find((b) => b.id === envBudgetId);
+        if (envBudget !== undefined) {
+          this.lastUsedBudgetId = envBudget.id;
+          return envBudget.id;
+        }
+        // If env var budget not found, warn but continue to other resolution
+      }
+
       if (this.lastUsedBudgetId !== null) {
         return this.lastUsedBudgetId;
       }
@@ -474,6 +519,8 @@ class YnabClient {
     failed: {error: string; id: string}[];
     updated: EnrichedTransaction[];
   }> {
+    assertWriteAllowed('update_transactions');
+
     const cache = await this.getBudgetCache(budgetId);
     const api = this.getApi();
 
@@ -540,6 +587,373 @@ class YnabClient {
   async getCurrencyFormat(budgetId: string): Promise<CurrencyFormat | null> {
     const cache = await this.getBudgetCache(budgetId);
     return cache.currencyFormat;
+  }
+
+  /**
+   * Get budget info (name, id) for journaling
+   */
+  async getBudgetInfo(budgetId: string): Promise<{id: string; name: string}> {
+    const budgets = await this.getBudgets();
+    const budget = budgets.find((b) => b.id === budgetId);
+    if (budget === undefined) {
+      return {id: budgetId, name: 'Unknown Budget'};
+    }
+    return {id: budget.id, name: budget.name};
+  }
+
+  /**
+   * Resolve a category selector to a category ID
+   */
+  async resolveCategoryId(
+    budgetId: string,
+    selector: CategorySelector,
+  ): Promise<string> {
+    const cache = await this.getBudgetCache(budgetId);
+
+    const selectorHasName = selector.name !== undefined && selector.name !== '';
+    const selectorHasId = selector.id !== undefined && selector.id !== '';
+
+    if (selectorHasName && selectorHasId) {
+      throw new Error(
+        "Category selector must specify exactly one of: 'name' or 'id'.",
+      );
+    }
+    if (!selectorHasName && !selectorHasId) {
+      throw new Error("Category selector must specify 'name' or 'id'.");
+    }
+
+    // Find by ID
+    if (selectorHasId) {
+      const category = cache.categoryById.get(selector.id ?? '');
+      if (category === undefined) {
+        const categoryNames = cache.categories
+          .filter((c) => !c.deleted && !c.hidden)
+          .slice(0, 20)
+          .map((c) => c.name)
+          .join(', ');
+        throw new Error(
+          `No category found with ID: '${selector.id}'. Some available categories: ${categoryNames}...`,
+        );
+      }
+      return category.id;
+    }
+
+    // Find by name (case-insensitive)
+    const nameLower = (selector.name ?? '').toLowerCase();
+    const category = cache.categories.find(
+      (c) => !c.deleted && c.name.toLowerCase() === nameLower,
+    );
+    if (category === undefined) {
+      const categoryNames = cache.categories
+        .filter((c) => !c.deleted && !c.hidden)
+        .slice(0, 20)
+        .map((c) => c.name)
+        .join(', ');
+      throw new Error(
+        `No category found with name: '${selector.name}'. Some available categories: ${categoryNames}...`,
+      );
+    }
+    return category.id;
+  }
+
+  /**
+   * Resolve a payee selector to a payee ID
+   */
+  async resolvePayeeId(
+    budgetId: string,
+    selector: PayeeSelector,
+  ): Promise<string | null> {
+    const cache = await this.getBudgetCache(budgetId);
+
+    const selectorHasName = selector.name !== undefined && selector.name !== '';
+    const selectorHasId = selector.id !== undefined && selector.id !== '';
+
+    if (selectorHasName && selectorHasId) {
+      throw new Error(
+        "Payee selector must specify exactly one of: 'name' or 'id'.",
+      );
+    }
+    if (!selectorHasName && !selectorHasId) {
+      return null; // No payee specified
+    }
+
+    // Find by ID
+    if (selectorHasId) {
+      const payee = cache.payeeById.get(selector.id ?? '');
+      if (payee === undefined) {
+        throw new Error(`No payee found with ID: '${selector.id}'.`);
+      }
+      return payee.id;
+    }
+
+    // Find by name (case-insensitive) - return null if not found (will create new)
+    const nameLower = (selector.name ?? '').toLowerCase();
+    const payee = cache.payees.find(
+      (p) => !p.deleted && p.name.toLowerCase() === nameLower,
+    );
+    // Return null if not found - YNAB will create the payee
+    return payee?.id ?? null;
+  }
+
+  /**
+   * Get a single transaction by ID
+   */
+  async getTransaction(
+    budgetId: string,
+    transactionId: string,
+  ): Promise<EnrichedTransaction> {
+    const cache = await this.getBudgetCache(budgetId);
+    const api = this.getApi();
+
+    const response = await api.transactions.getTransactionById(
+      budgetId,
+      transactionId,
+    );
+
+    return this.enrichTransaction(response.data.transaction, cache);
+  }
+
+  /**
+   * Get scheduled transactions
+   */
+  async getScheduledTransactions(
+    budgetId: string,
+  ): Promise<EnrichedScheduledTransaction[]> {
+    const cache = await this.getBudgetCache(budgetId);
+    const api = this.getApi();
+
+    const response =
+      await api.scheduledTransactions.getScheduledTransactions(budgetId);
+
+    return response.data.scheduled_transactions
+      .filter((txn) => !txn.deleted)
+      .map((txn) => ({
+        account_id: txn.account_id,
+        account_name: txn.account_name,
+        amount: txn.amount,
+        amount_currency: this.toCurrency(txn.amount, cache.currencyFormat),
+        category_id: txn.category_id ?? null,
+        category_name: txn.category_name ?? null,
+        date_first: txn.date_first,
+        date_next: txn.date_next,
+        flag_color: txn.flag_color ?? null,
+        frequency: txn.frequency,
+        id: txn.id,
+        memo: txn.memo ?? null,
+        payee_id: txn.payee_id ?? null,
+        payee_name: txn.payee_name ?? null,
+      }));
+  }
+
+  /**
+   * Get budget months list
+   */
+  async getBudgetMonths(budgetId: string): Promise<EnrichedMonthSummary[]> {
+    const cache = await this.getBudgetCache(budgetId);
+    const api = this.getApi();
+
+    const response = await api.months.getBudgetMonths(budgetId);
+
+    return response.data.months.map((month) => ({
+      activity: month.activity,
+      activity_currency: this.toCurrency(month.activity, cache.currencyFormat),
+      age_of_money: month.age_of_money ?? null,
+      budgeted: month.budgeted,
+      budgeted_currency: this.toCurrency(month.budgeted, cache.currencyFormat),
+      income: month.income,
+      income_currency: this.toCurrency(month.income, cache.currencyFormat),
+      month: month.month,
+      note: month.note ?? null,
+      to_be_budgeted: month.to_be_budgeted,
+      to_be_budgeted_currency: this.toCurrency(
+        month.to_be_budgeted,
+        cache.currencyFormat,
+      ),
+    }));
+  }
+
+  /**
+   * Get budget month detail with categories
+   */
+  async getBudgetMonth(
+    budgetId: string,
+    month: string,
+  ): Promise<EnrichedBudgetMonthDetail> {
+    const cache = await this.getBudgetCache(budgetId);
+    const api = this.getApi();
+
+    const response = await api.months.getBudgetMonth(budgetId, month);
+    const monthData = response.data.month;
+
+    const categories: EnrichedMonthCategory[] = monthData.categories
+      .filter((c) => !c.deleted)
+      .map((c) => ({
+        activity: c.activity,
+        activity_currency: this.toCurrency(c.activity, cache.currencyFormat),
+        balance: c.balance,
+        balance_currency: this.toCurrency(c.balance, cache.currencyFormat),
+        budgeted: c.budgeted,
+        budgeted_currency: this.toCurrency(c.budgeted, cache.currencyFormat),
+        category_group_id: c.category_group_id,
+        category_group_name:
+          cache.categoryGroupNameById.get(c.category_group_id) ?? '',
+        goal_percentage_complete: c.goal_percentage_complete ?? null,
+        goal_target: c.goal_target ?? null,
+        goal_type: c.goal_type ?? null,
+        hidden: c.hidden,
+        id: c.id,
+        name: c.name,
+      }));
+
+    return {
+      activity: monthData.activity,
+      activity_currency: this.toCurrency(
+        monthData.activity,
+        cache.currencyFormat,
+      ),
+      age_of_money: monthData.age_of_money ?? null,
+      budgeted: monthData.budgeted,
+      budgeted_currency: this.toCurrency(
+        monthData.budgeted,
+        cache.currencyFormat,
+      ),
+      categories,
+      income: monthData.income,
+      income_currency: this.toCurrency(monthData.income, cache.currencyFormat),
+      month: monthData.month,
+      note: monthData.note ?? null,
+      to_be_budgeted: monthData.to_be_budgeted,
+      to_be_budgeted_currency: this.toCurrency(
+        monthData.to_be_budgeted,
+        cache.currencyFormat,
+      ),
+    };
+  }
+
+  /**
+   * Create a new transaction
+   */
+  async createTransaction(
+    budgetId: string,
+    transaction: CreateTransactionInput,
+  ): Promise<EnrichedTransaction> {
+    assertWriteAllowed('create_transaction');
+
+    const api = this.getApi();
+
+    const response = await api.transactions.createTransaction(budgetId, {
+      transaction: {
+        account_id: transaction.account_id,
+        amount: transaction.amount,
+        approved: transaction.approved ?? false,
+        category_id: transaction.category_id,
+        cleared:
+          transaction.cleared === true
+            ? TransactionClearedStatus.Cleared
+            : TransactionClearedStatus.Uncleared,
+        date: transaction.date,
+        flag_color: transaction.flag_color as TransactionFlagColor | undefined,
+        memo: transaction.memo,
+        payee_id: transaction.payee_id,
+        payee_name: transaction.payee_name,
+      },
+    });
+
+    // Invalidate cache since payee may have been created
+    this.budgetCaches.delete(budgetId);
+
+    const newCache = await this.getBudgetCache(budgetId);
+    const createdTransaction = response.data.transaction;
+    if (createdTransaction === undefined) {
+      throw new Error('Failed to create transaction: no transaction returned');
+    }
+    return this.enrichTransaction(createdTransaction, newCache);
+  }
+
+  /**
+   * Delete a transaction
+   */
+  async deleteTransaction(
+    budgetId: string,
+    transactionId: string,
+  ): Promise<{deleted: EnrichedTransaction}> {
+    assertWriteAllowed('delete_transaction');
+
+    const cache = await this.getBudgetCache(budgetId);
+    const api = this.getApi();
+
+    const response = await api.transactions.deleteTransaction(
+      budgetId,
+      transactionId,
+    );
+
+    return {
+      deleted: this.enrichTransaction(response.data.transaction, cache),
+    };
+  }
+
+  /**
+   * Import transactions from linked accounts
+   */
+  async importTransactions(
+    budgetId: string,
+  ): Promise<{imported_count: number; transaction_ids: string[]}> {
+    assertWriteAllowed('import_transactions');
+
+    const api = this.getApi();
+
+    const response = await api.transactions.importTransactions(budgetId);
+
+    return {
+      imported_count: response.data.transaction_ids.length,
+      transaction_ids: response.data.transaction_ids,
+    };
+  }
+
+  /**
+   * Update category budget for a month
+   */
+  async updateCategoryBudget(
+    budgetId: string,
+    month: string,
+    categoryId: string,
+    budgeted: number,
+  ): Promise<EnrichedMonthCategory> {
+    assertWriteAllowed('update_category_budget');
+
+    const cache = await this.getBudgetCache(budgetId);
+    const api = this.getApi();
+
+    const response = await api.categories.updateMonthCategory(
+      budgetId,
+      month,
+      categoryId,
+      {
+        category: {
+          budgeted,
+        },
+      },
+    );
+
+    const c = response.data.category;
+
+    return {
+      activity: c.activity,
+      activity_currency: this.toCurrency(c.activity, cache.currencyFormat),
+      balance: c.balance,
+      balance_currency: this.toCurrency(c.balance, cache.currencyFormat),
+      budgeted: c.budgeted,
+      budgeted_currency: this.toCurrency(c.budgeted, cache.currencyFormat),
+      category_group_id: c.category_group_id,
+      category_group_name:
+        cache.categoryGroupNameById.get(c.category_group_id) ?? '',
+      goal_percentage_complete: c.goal_percentage_complete ?? null,
+      goal_target: c.goal_target ?? null,
+      goal_type: c.goal_type ?? null,
+      hidden: c.hidden,
+      id: c.id,
+      name: c.name,
+    };
   }
 
   /**

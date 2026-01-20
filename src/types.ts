@@ -192,3 +192,131 @@ export interface TransactionUpdate {
   id: string;
   memo?: string;
 }
+
+/**
+ * Category selector - can specify by name or id
+ */
+export interface CategorySelector {
+  id?: string;
+  name?: string;
+}
+
+/**
+ * Payee selector - can specify by name or id
+ */
+export interface PayeeSelector {
+  id?: string;
+  name?: string;
+}
+
+/**
+ * Enriched scheduled transaction
+ */
+export interface EnrichedScheduledTransaction {
+  account_id: string;
+  account_name: string;
+  amount: number;
+  amount_currency: number;
+  category_id: string | null;
+  category_name: string | null;
+  date_first: string;
+  date_next: string;
+  flag_color: string | null;
+  frequency: string;
+  id: string;
+  memo: string | null;
+  payee_id: string | null;
+  payee_name: string | null;
+}
+
+/**
+ * Month summary
+ */
+export interface EnrichedMonthSummary {
+  activity: number;
+  activity_currency: number;
+  age_of_money: number | null;
+  budgeted: number;
+  budgeted_currency: number;
+  income: number;
+  income_currency: number;
+  month: string;
+  note: string | null;
+  to_be_budgeted: number;
+  to_be_budgeted_currency: number;
+}
+
+/**
+ * Budget month detail with categories
+ */
+export interface EnrichedBudgetMonthDetail {
+  activity: number;
+  activity_currency: number;
+  age_of_money: number | null;
+  budgeted: number;
+  budgeted_currency: number;
+  categories: EnrichedMonthCategory[];
+  income: number;
+  income_currency: number;
+  month: string;
+  note: string | null;
+  to_be_budgeted: number;
+  to_be_budgeted_currency: number;
+}
+
+/**
+ * Category with month-specific budget info
+ */
+export interface EnrichedMonthCategory {
+  activity: number;
+  activity_currency: number;
+  balance: number;
+  balance_currency: number;
+  budgeted: number;
+  budgeted_currency: number;
+  category_group_id: string;
+  category_group_name: string;
+  goal_percentage_complete: number | null;
+  goal_target: number | null;
+  goal_type: string | null;
+  hidden: boolean;
+  id: string;
+  name: string;
+}
+
+/**
+ * Create transaction input
+ */
+export interface CreateTransactionInput {
+  account_id: string;
+  amount: number;
+  approved?: boolean;
+  category_id?: string;
+  cleared?: boolean;
+  date: string;
+  flag_color?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple';
+  memo?: string;
+  payee_id?: string;
+  payee_name?: string;
+}
+
+/**
+ * Journal entry for change tracking
+ */
+export interface JournalEntry {
+  after: unknown;
+  before: unknown;
+  budget: {
+    id: string;
+    name: string;
+  };
+  changes?: Record<string, {from: unknown; to: unknown}>;
+  id: string;
+  metadata?: {
+    affected_count?: number;
+    affected_ids?: string[];
+    summary?: string;
+  };
+  operation: string;
+  timestamp: string;
+}
