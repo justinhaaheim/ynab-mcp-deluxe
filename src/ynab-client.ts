@@ -524,13 +524,36 @@ class YnabClient {
     const cache = await this.getBudgetCache(budgetId);
     const api = this.getApi();
 
-    // Build the patch request
+    // Map cleared string to YNAB enum
+    const mapCleared = (
+      cleared?: string,
+    ): TransactionClearedStatus | undefined => {
+      if (cleared === undefined) return undefined;
+      switch (cleared) {
+        case 'cleared':
+          return TransactionClearedStatus.Cleared;
+        case 'reconciled':
+          return TransactionClearedStatus.Reconciled;
+        case 'uncleared':
+          return TransactionClearedStatus.Uncleared;
+        default:
+          return undefined;
+      }
+    };
+
+    // Build the patch request with all supported fields
     const patchTransactions = updates.map((u) => ({
+      account_id: u.account_id,
+      amount: u.amount,
       approved: u.approved,
       category_id: u.category_id,
-      flag_color: u.flag_color,
+      cleared: mapCleared(u.cleared),
+      date: u.date,
+      flag_color: u.flag_color as TransactionFlagColor | null | undefined,
       id: u.id,
       memo: u.memo,
+      payee_id: u.payee_id,
+      payee_name: u.payee_name,
     }));
 
     try {
@@ -541,6 +564,23 @@ class YnabClient {
       // The API returns SaveTransactionsResponse which has transaction_ids for new ones
       // and transactions array for updated ones
       const updatedTxs = response.data.transactions ?? [];
+
+      // Invalidate cache if payees might have been created
+      const hasPayeeNames = updates.some(
+        (u) => u.payee_name !== undefined && u.payee_name !== '',
+      );
+      if (hasPayeeNames) {
+        this.budgetCaches.delete(budgetId);
+        const newCache = await this.getBudgetCache(budgetId);
+        const enriched = updatedTxs.map((tx) =>
+          this.enrichTransaction(tx, newCache),
+        );
+        return {
+          failed: [],
+          updated: enriched,
+        };
+      }
+
       const enriched = updatedTxs.map((tx) =>
         this.enrichTransaction(tx, cache),
       );
@@ -561,10 +601,19 @@ class YnabClient {
             update.id,
             {
               transaction: {
+                account_id: update.account_id,
+                amount: update.amount,
                 approved: update.approved,
                 category_id: update.category_id,
-                flag_color: update.flag_color,
+                cleared: mapCleared(update.cleared),
+                date: update.date,
+                flag_color: update.flag_color as
+                  | TransactionFlagColor
+                  | null
+                  | undefined,
                 memo: update.memo,
+                payee_id: update.payee_id,
+                payee_name: update.payee_name,
               },
             },
           );
@@ -575,6 +624,14 @@ class YnabClient {
           const message = err instanceof Error ? err.message : 'Unknown error';
           failed.push({error: message, id: update.id});
         }
+      }
+
+      // Invalidate cache if payees might have been created
+      const hasPayeeNames = updates.some(
+        (u) => u.payee_name !== undefined && u.payee_name !== '',
+      );
+      if (hasPayeeNames) {
+        this.budgetCaches.delete(budgetId);
       }
 
       return {failed, updated};

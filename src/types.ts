@@ -183,14 +183,31 @@ export type TransactionSortBy =
   | 'amount_asc';
 
 /**
- * Transaction update payload
+ * Transaction update payload - supports full transaction editing
  */
 export interface TransactionUpdate {
+  /** Move transaction to different account */
+  account_id?: string;
+  /** Change amount (in milliunits) */
+  amount?: number;
+  /** Set approval status */
   approved?: boolean;
+  /** Set category */
   category_id?: string;
-  flag_color?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | null;
+  /** Set cleared status */
+  cleared?: 'cleared' | 'uncleared' | 'reconciled';
+  /** Change transaction date (YYYY-MM-DD) */
+  date?: string;
+  /** Set flag color (null to clear) */
+  flag_color?: 'blue' | 'green' | 'orange' | 'purple' | 'red' | 'yellow' | null;
+  /** Transaction ID (required) */
   id: string;
+  /** Set memo text */
   memo?: string;
+  /** Set payee by ID */
+  payee_id?: string;
+  /** Set payee by name (creates new payee if not found) */
+  payee_name?: string;
 }
 
 /**

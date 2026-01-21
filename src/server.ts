@@ -559,8 +559,8 @@ server.addTool({
     title: 'Update Transactions',
   },
   description: `Update one or more transactions in YNAB.
-
-Use this to set categories, approve transactions, update memos, or set flags. Supports batch updates for efficiency.
+${isReadOnlyMode() ? '\n**⚠️ SERVER IS IN READ-ONLY MODE - This operation will fail**\n' : ''}
+Supports full transaction editing including category, approval, memo, flags, date, amount, payee, account, and cleared status. Batch updates are supported for efficiency.
 
 **Parameters:**
 
@@ -569,9 +569,15 @@ budget - Which budget (uses default if omitted)
 transactions (required) - Array of updates, each containing:
   - id (required) - Transaction ID
   - category_id - New category ID
-  - approved - Set to true to approve
+  - approved - Set approval status (true/false)
   - memo - New memo text
   - flag_color - "red", "orange", "yellow", "green", "blue", "purple", or null
+  - date - New date (YYYY-MM-DD format)
+  - amount - New amount in MILLIUNITS (negative for outflow)
+  - account_id - Move to different account
+  - payee_id - Set payee by ID
+  - payee_name - Set payee by name (creates new payee if not found)
+  - cleared - "cleared", "uncleared", or "reconciled"
 
 **Examples:**
 
@@ -588,11 +594,20 @@ Batch categorize:
     {"id": "tx3", "category_id": "cat-gas", "approved": true}
   ]}
 
+Change amount (correct a $45.99 expense to $54.99):
+  {"transactions": [{"id": "abc123", "amount": -54990}]}
+
+Change date:
+  {"transactions": [{"id": "abc123", "date": "2026-01-15"}]}
+
+Change payee:
+  {"transactions": [{"id": "abc123", "payee_name": "Amazon"}]}
+
+Move to different account:
+  {"transactions": [{"id": "abc123", "account_id": "acct-456"}]}
+
 Flag for review:
   {"transactions": [{"id": "abc123", "flag_color": "red"}]}
-
-Add memo:
-  {"transactions": [{"id": "abc123", "memo": "Birthday gift for Mom"}]}
 
 **Response:**
 Returns updated transactions and any failures with error messages.`,
@@ -605,11 +620,17 @@ Returns updated transactions and any failures with error messages.`,
       );
 
       const updates: TransactionUpdate[] = args.transactions.map((t) => ({
+        account_id: t.account_id,
+        amount: t.amount,
         approved: t.approved,
         category_id: t.category_id,
+        cleared: t.cleared,
+        date: t.date,
         flag_color: t.flag_color,
         id: t.id,
         memo: t.memo,
+        payee_id: t.payee_id,
+        payee_name: t.payee_name,
       }));
 
       const result: UpdateTransactionsResult =
@@ -627,8 +648,22 @@ Returns updated transactions and any failures with error messages.`,
     transactions: z
       .array(
         z.object({
+          account_id: z
+            .string()
+            .optional()
+            .describe('Move to different account'),
+          amount: z
+            .number()
+            .int()
+            .optional()
+            .describe('New amount in milliunits'),
           approved: z.boolean().optional().describe('Set approval status'),
           category_id: z.string().optional().describe('New category ID'),
+          cleared: z
+            .enum(['cleared', 'uncleared', 'reconciled'])
+            .optional()
+            .describe('Cleared status'),
+          date: z.string().optional().describe('New date (YYYY-MM-DD)'),
           flag_color: z
             .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple'])
             .nullable()
@@ -636,6 +671,11 @@ Returns updated transactions and any failures with error messages.`,
             .describe('Flag color (null to clear)'),
           id: z.string().describe('Transaction ID to update'),
           memo: z.string().optional().describe('New memo text'),
+          payee_id: z.string().optional().describe('Set payee by ID'),
+          payee_name: z
+            .string()
+            .optional()
+            .describe('Set payee by name (creates if not found)'),
         }),
       )
       .min(1)
