@@ -10,6 +10,8 @@
     "start": "tsx src/server.ts",
     "dev": "fastmcp dev src/server.ts",
     "test": "vitest run",
+    "test:watch": "vitest",
+    "generate:mocks": "curl -sL -o src/mocks/ynab-openapi.yaml https://api.ynab.com/papi/open_api_spec.yaml && npx msw-auto-mock src/mocks/ynab-openapi.yaml -o src/mocks --base-url https://api.ynab.com/v1 --typescript -c 200,201",
     "lint-base": "eslint --report-unused-disable-directives --max-warnings 0",
     "lint": "bun run lint-base -- .",
     "lint:fix": "bun run lint-base -- --fix .",
@@ -48,6 +50,7 @@
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@faker-js/faker": "^10.2.0",
     "@tsconfig/node22": "^22.0.1",
     "@types/node": "^25.0.9",
     "eslint": "^9.26.0",
@@ -55,6 +58,7 @@
     "husky": "^9.1.7",
     "jiti": "^2.4.2",
     "lint-staged": "^14.0.1",
+    "msw": "^2.12.7",
     "prettier": "^3.5.3",
     "semantic-release": "^24.2.3",
     "tsx": "^4.19.4",
