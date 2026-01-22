@@ -300,7 +300,9 @@ export const handlers = [
     );
   }),
   http.patch(`${baseURL}/budgets/:budgetId/transactions`, async () => {
-    const resultArray = [] as [any, {status: number}][];
+    const resultArray = [
+      [getUpdateTransactions200Response(), {status: 200}],
+    ] as [any, {status: number}][];
 
     return HttpResponse.json(
       ...resultArray[
@@ -2554,6 +2556,83 @@ export function getDeleteScheduledTransaction200Response() {
           deleted: faker.datatype.boolean(),
         })),
       },
+    },
+  };
+}
+
+export function getUpdateTransactions200Response() {
+  return {
+    data: {
+      transaction_ids: [
+        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
+      ].map((_) => faker.string.uuid()),
+      transactions: [
+        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
+      ].map((_) => ({
+        id: faker.string.uuid(),
+        date: faker.date.past().toISOString().substring(0, 10),
+        amount: faker.number.int(),
+        memo: faker.lorem.words(),
+        cleared: faker.helpers.arrayElement([
+          'cleared',
+          'uncleared',
+          'reconciled',
+        ]),
+        approved: faker.datatype.boolean(),
+        flag_color: faker.helpers.arrayElement([
+          'red',
+          'orange',
+          'yellow',
+          'green',
+          'blue',
+          'purple',
+          '',
+          null,
+        ]),
+        flag_name: faker.person.fullName(),
+        account_id: faker.string.uuid(),
+        payee_id: faker.string.uuid(),
+        category_id: faker.string.uuid(),
+        transfer_account_id: faker.string.uuid(),
+        transfer_transaction_id: faker.string.uuid(),
+        matched_transaction_id: faker.string.uuid(),
+        import_id: faker.string.uuid(),
+        import_payee_name: faker.person.fullName(),
+        import_payee_name_original: faker.lorem.words(),
+        debt_transaction_type: faker.helpers.arrayElement([
+          'payment',
+          'refund',
+          'fee',
+          'interest',
+          'escrow',
+          'balanceAdjustment',
+          'credit',
+          'charge',
+          null,
+        ]),
+        deleted: faker.datatype.boolean(),
+        account_name: faker.person.fullName(),
+        payee_name: faker.person.fullName(),
+        category_name: faker.person.fullName(),
+        subtransactions: [
+          ...new Array(
+            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
+          ).keys(),
+        ].map((_) => ({
+          id: faker.string.uuid(),
+          transaction_id: faker.string.uuid(),
+          amount: faker.number.int(),
+          memo: faker.lorem.words(),
+          payee_id: faker.string.uuid(),
+          payee_name: faker.person.fullName(),
+          category_id: faker.string.uuid(),
+          category_name: faker.person.fullName(),
+          transfer_account_id: faker.string.uuid(),
+          transfer_transaction_id: faker.string.uuid(),
+          deleted: faker.datatype.boolean(),
+        })),
+      })),
+      server_knowledge: faker.number.int(),
     },
   };
 }

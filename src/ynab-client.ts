@@ -521,7 +521,6 @@ class YnabClient {
   }> {
     assertWriteAllowed('update_transactions');
 
-    const cache = await this.getBudgetCache(budgetId);
     const api = this.getApi();
 
     // Map cleared string to YNAB enum
@@ -565,33 +564,28 @@ class YnabClient {
       // and transactions array for updated ones
       const updatedTxs = response.data.transactions ?? [];
 
-      // Invalidate cache if payees might have been created
-      const hasPayeeNames = updates.some(
-        (u) => u.payee_name !== undefined && u.payee_name !== '',
-      );
-      if (hasPayeeNames) {
-        this.budgetCaches.delete(budgetId);
-        const newCache = await this.getBudgetCache(budgetId);
-        const enriched = updatedTxs.map((tx) =>
-          this.enrichTransaction(tx, newCache),
-        );
-        return {
-          failed: [],
-          updated: enriched,
-        };
-      }
-
+      // Always invalidate cache after write operations to ensure consistency
+      // (payees may be created, and we want fresh data for enrichment)
+      this.budgetCaches.delete(budgetId);
+      const freshCache = await this.getBudgetCache(budgetId);
       const enriched = updatedTxs.map((tx) =>
-        this.enrichTransaction(tx, cache),
+        this.enrichTransaction(tx, freshCache),
       );
 
       return {
         failed: [],
         updated: enriched,
       };
-    } catch {
+    } catch (bulkError) {
       // If bulk update fails, try individual updates to get specific errors
-      const updated: EnrichedTransaction[] = [];
+      // Log the original error for debugging
+      const bulkErrorMessage =
+        bulkError instanceof Error ? bulkError.message : 'Unknown error';
+      console.warn(
+        `Bulk transaction update failed (${bulkErrorMessage}), falling back to individual updates`,
+      );
+
+      const updatedRaw: TransactionDetail[] = [];
       const failed: {error: string; id: string}[] = [];
 
       for (const update of updates) {
@@ -617,22 +611,23 @@ class YnabClient {
               },
             },
           );
-          updated.push(
-            this.enrichTransaction(response.data.transaction, cache),
-          );
+          // Store raw transaction, enrich after cache refresh
+          updatedRaw.push(response.data.transaction);
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Unknown error';
           failed.push({error: message, id: update.id});
         }
       }
 
-      // Invalidate cache if payees might have been created
-      const hasPayeeNames = updates.some(
-        (u) => u.payee_name !== undefined && u.payee_name !== '',
+      // Always invalidate cache after write operations to ensure consistency
+      // (matches createTransaction behavior)
+      this.budgetCaches.delete(budgetId);
+
+      // Get fresh cache and enrich all updated transactions
+      const freshCache = await this.getBudgetCache(budgetId);
+      const updated = updatedRaw.map((tx) =>
+        this.enrichTransaction(tx, freshCache),
       );
-      if (hasPayeeNames) {
-        this.budgetCaches.delete(budgetId);
-      }
 
       return {failed, updated};
     }

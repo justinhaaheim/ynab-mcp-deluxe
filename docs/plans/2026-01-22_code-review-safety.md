@@ -15,67 +15,44 @@ This review examined the YNAB MCP Server codebase with emphasis on safety, corre
 
 ## CRITICAL ISSUES
 
-### 1. Mock Handler Bug - PATCH /transactions Returns Empty Array
+### 1. ~~Mock Handler Bug - PATCH /transactions Returns Empty Array~~ ✅ FIXED
 
 **File:** `src/mocks/handlers.ts:302-309`
 
-```javascript
-http.patch(`${baseURL}/budgets/:budgetId/transactions`, async () => {
-    const resultArray = [] as [any, {status: number}][];  // EMPTY!
-    return HttpResponse.json(
-      ...resultArray[next(`patch /budgets/:budgetId/transactions`) % resultArray.length],
-    );
-  }),
-```
+**Status:** FIXED - Added `getUpdateTransactions200Response()` function and updated handler.
 
-**Impact:** The bulk transaction update endpoint has an EMPTY `resultArray`. When this endpoint is called:
-
-- `0 % 0` → NaN
-- `resultArray[NaN]` → undefined
-- `HttpResponse.json(...undefined)` → runtime error
-
-**Risk:** Cannot test bulk transaction updates with the mock system. Any test calling `updateTransactions` with batch operations will fail.
-
-**Recommendation:** Generate or manually add proper response data for this handler.
+~~**Impact:** The bulk transaction update endpoint has an EMPTY `resultArray`. When this endpoint is called, it would cause runtime errors.~~
 
 ---
 
 ## HIGH PRIORITY (Safety/Data Risk)
 
-### 2. Cache Invalidation Race Condition in updateTransactions
+### 2. ~~Cache Invalidation Race Condition in updateTransactions~~ ✅ FIXED
 
 **File:** `src/ynab-client.ts:515-638`
 
-**Issues:**
+**Status:** FIXED - Cache is now always invalidated after write operations, and fresh cache is fetched before enriching transactions in the fallback path.
 
-1. When bulk update fails and falls back to individual updates, successful updates use stale cache while later failures occur
-2. Cache is only invalidated if `payee_name` fields are present, but other changes (account_id, category_id) could also affect cache integrity
-3. After cache deletion at line 573/633, parallel requests could start rebuilding cache while updates are still processing
+**Changes made:**
 
-**Example problematic flow:**
+- Removed conditional cache invalidation (was only for `payee_name`)
+- Now always invalidates and re-fetches cache after any update
+- In fallback path, stores raw transactions first, then enriches after getting fresh cache
 
-```
-1. Bulk update with 5 transactions fails
-2. Individual update #1 succeeds (uses stale cache)
-3. Individual update #2 succeeds (uses stale cache)
-4. Individual update #3 fails (payee not found)
-5. Cache invalidated ONLY IF any update had payee_name
-```
+### 3. ~~Silent Error Swallowing~~ ✅ FIXED
 
-**Risk:** Stale cached data could cause name resolution mismatches or incorrect enrichment of returned transactions.
+**File:** `src/ynab-client.ts:580-587`
 
-### 3. Silent Error Swallowing
-
-**File:** `src/ynab-client.ts:592`
+**Status:** FIXED - Original bulk update error is now logged with `console.warn()` before falling back to individual updates.
 
 ```typescript
-} catch {
-  // If bulk update fails, try individual updates to get specific errors
+} catch (bulkError) {
+  const bulkErrorMessage =
+    bulkError instanceof Error ? bulkError.message : 'Unknown error';
+  console.warn(
+    `Bulk transaction update failed (${bulkErrorMessage}), falling back to individual updates`,
+  );
 ```
-
-**Issue:** The original bulk update error message is completely discarded. If all individual updates then fail with generic errors, the root cause is lost.
-
-**Recommendation:** Log or preserve the original error message for debugging.
 
 ### 4. Cross-Budget Operation Risk with lastUsedBudgetId
 
