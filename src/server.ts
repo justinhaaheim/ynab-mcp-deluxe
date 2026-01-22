@@ -25,7 +25,7 @@ import {z} from 'zod';
 import {
   applyJMESPath,
   calculateCategoryDistribution,
-  createErrorResponse,
+  createEnhancedErrorResponse,
   filterByAccount,
   filterByDateRange,
   filterByPayee,
@@ -82,8 +82,7 @@ Returns budget names, IDs, currency, and date ranges. Call this first if you nee
       const budgets = await ynabClient.getBudgets();
       return JSON.stringify(budgets, null, 2);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'List budgets');
     }
   },
   name: 'get_budgets',
@@ -241,8 +240,7 @@ Just IDs and payees (minimal projection):
 
       return JSON.stringify(result, null, 2);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'Query transactions');
     }
   },
   name: 'query_transactions',
@@ -368,8 +366,7 @@ Amazon transactions (limited):
 
       return JSON.stringify(response, null, 2);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'Get payee history');
     }
   },
   name: 'get_payee_history',
@@ -465,8 +462,7 @@ Array of category groups, each containing:
 
       return JSON.stringify(result, null, 2);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'Get categories');
     }
   },
   name: 'get_categories',
@@ -532,8 +528,7 @@ Just checking accounts:
 
       return JSON.stringify(result, null, 2);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'Get accounts');
     }
   },
   name: 'get_accounts',
@@ -638,8 +633,7 @@ Returns updated transactions and any failures with error messages.`,
 
       return JSON.stringify(result, null, 2);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'Update transactions');
     }
   },
   name: 'update_transactions',
@@ -729,8 +723,7 @@ Search for a payee:
 
       return JSON.stringify(result, null, 2);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'Get payees');
     }
   },
   name: 'get_payees',
@@ -785,8 +778,10 @@ Monthly bills only:
 
       return JSON.stringify(result, null, 2);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(
+        error,
+        'Get scheduled transactions',
+      );
     }
   },
   name: 'get_scheduled_transactions',
@@ -841,8 +836,7 @@ Recent months with positive income:
 
       return JSON.stringify(result, null, 2);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'Get budget months');
     }
   },
   name: 'get_months',
@@ -922,8 +916,7 @@ Categories with goals:
 
       return JSON.stringify(result, null, 2);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'Get budget summary');
     }
   },
   name: 'get_budget_summary',
@@ -1131,8 +1124,7 @@ Paycheck ($3000):
 
       return JSON.stringify(response, null, 2);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'Create transactions');
     }
   },
   name: 'create_transactions',
@@ -1189,8 +1181,7 @@ transaction_id (required) - The ID of the transaction to delete
         2,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'Delete transaction');
     }
   },
   name: 'delete_transaction',
@@ -1244,8 +1235,7 @@ budget - Which budget (uses default if omitted)
         2,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'Import transactions');
     }
   },
   name: 'import_transactions',
@@ -1326,8 +1316,7 @@ Fund emergency fund with $1000:
         2,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return createErrorResponse(message);
+      return await createEnhancedErrorResponse(error, 'Update category budget');
     }
   },
   name: 'update_category_budget',

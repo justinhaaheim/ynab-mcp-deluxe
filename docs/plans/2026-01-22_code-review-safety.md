@@ -527,8 +527,56 @@ Questions to answer:
 
 ---
 
+---
+
+## Error Handling Audit ✅ COMPLETE
+
+### Issue
+
+Error handling was **structurally sound** but **informationally impoverished**. All 14 tools used a generic pattern:
+
+```typescript
+catch (error) {
+  const message = error instanceof Error ? error.message : 'Unknown error';
+  return createErrorResponse(message);
+}
+```
+
+This lost critical context from YNAB SDK errors:
+
+- HTTP status codes (401, 404, 429, 500)
+- YNAB error details (`{id, name, detail}`)
+- Network error causes
+
+### Solution Implemented
+
+Created `createEnhancedErrorResponse()` in `helpers.ts` that:
+
+1. Detects YNAB `ResponseError` and extracts HTTP status + error detail from response body
+2. Detects YNAB `FetchError` and extracts the underlying cause
+3. Adds specific guidance for common errors:
+   - 401 → "Check your YNAB API token"
+   - 404 → "Resource not found - verify the ID exists"
+   - 429 → "Rate limited - wait before retrying"
+   - 5xx → "YNAB server error - try again later"
+4. Passes through application-level errors unchanged (they already have good messages)
+
+Updated all 14 tool handlers to use the new helper with operation-specific context.
+
+### Example Error Messages (Before vs After)
+
+| Scenario         | Before              | After                                                                       |
+| ---------------- | ------------------- | --------------------------------------------------------------------------- |
+| Invalid token    | "Unauthorized"      | "List budgets failed: HTTP 401 (Check your YNAB API token)"                 |
+| Budget not found | "Not Found"         | "Get accounts failed: HTTP 404 (Resource not found - verify the ID exists)" |
+| Rate limited     | "Too Many Requests" | "Query transactions failed: HTTP 429 (Rate limited - wait before retrying)" |
+| Network error    | "fetch failed"      | "Get categories failed: Network error - ECONNREFUSED"                       |
+
+---
+
 ## Changelog
 
+- 2026-01-22: Enhanced error handling for all 14 tools with HTTP status and guidance
 - 2026-01-22: Added missing fields to `get_accounts` (cleared/uncleared balance, import status)
 - 2026-01-22: Added `subtransactions` and `transfer_account_id` to `get_scheduled_transactions`
 - 2026-01-22: Added cache invalidation to `import_transactions`

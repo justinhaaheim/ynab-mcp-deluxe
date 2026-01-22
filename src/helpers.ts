@@ -194,3 +194,113 @@ export function isTransformed(value: unknown): boolean {
   if (typeof first !== 'object' || first === null) return true;
   return !('id' in first && 'date' in first && 'amount' in first);
 }
+
+// ============================================================================
+// YNAB Error Handling
+// ============================================================================
+
+/**
+ * Type guard for YNAB SDK ResponseError (HTTP errors from API)
+ */
+function isYnabResponseError(error: unknown): error is {
+  message: string;
+  name: string;
+  response: Response;
+} {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'response' in error &&
+    'name' in error &&
+    (error as {name: string}).name === 'ResponseError'
+  );
+}
+
+/**
+ * Type guard for YNAB SDK FetchError (network errors)
+ */
+function isYnabFetchError(error: unknown): error is {
+  cause: Error;
+  message: string;
+  name: string;
+} {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'cause' in error &&
+    'name' in error &&
+    (error as {name: string}).name === 'FetchError'
+  );
+}
+
+/**
+ * YNAB API error detail structure
+ */
+interface YnabErrorDetail {
+  detail: string;
+  id: string;
+  name: string;
+}
+
+/**
+ * Create an enhanced MCP error response with context from YNAB errors
+ *
+ * Extracts HTTP status codes and error details from YNAB SDK errors
+ * to provide actionable error messages for the LLM.
+ */
+export async function createEnhancedErrorResponse(
+  error: unknown,
+  operation: string,
+): Promise<{content: {text: string; type: 'text'}[]; isError: true}> {
+  let message: string;
+
+  if (isYnabResponseError(error)) {
+    const statusCode = error.response.status;
+
+    // Try to extract YNAB error detail from response body
+    let detail: string | null = null;
+    try {
+      const body = (await error.response.json()) as {error?: YnabErrorDetail};
+      if (
+        body?.error?.detail !== undefined &&
+        body.error.detail !== null &&
+        body.error.detail !== ''
+      ) {
+        detail = body.error.detail;
+      }
+    } catch {
+      // Response body not available or not JSON
+    }
+
+    if (detail !== null) {
+      message = `${operation} failed: ${detail}`;
+    } else {
+      message = `${operation} failed: HTTP ${statusCode}`;
+    }
+
+    // Add specific guidance for common HTTP errors
+    if (statusCode === 401) {
+      message += ' (Check your YNAB API token)';
+    } else if (statusCode === 404) {
+      message += ' (Resource not found - verify the ID exists)';
+    } else if (statusCode === 429) {
+      message += ' (Rate limited - wait before retrying)';
+    } else if (statusCode >= 500) {
+      message += ' (YNAB server error - try again later)';
+    }
+  } else if (isYnabFetchError(error)) {
+    const causeMessage = error.cause?.message ?? error.message;
+    message = `${operation} failed: Network error - ${causeMessage}`;
+  } else if (error instanceof Error) {
+    // Application-level errors (validation, resolution failures, etc.)
+    // These already have good messages from ynab-client.ts
+    message = error.message;
+  } else {
+    message = `${operation} failed: Unknown error`;
+  }
+
+  return {
+    content: [{text: message, type: 'text'}],
+    isError: true,
+  };
+}
