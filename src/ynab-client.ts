@@ -516,7 +516,6 @@ class YnabClient {
     budgetId: string,
     updates: TransactionUpdate[],
   ): Promise<{
-    failed: {error: string; id: string}[];
     updated: EnrichedTransaction[];
   }> {
     assertWriteAllowed('update_transactions');
@@ -572,7 +571,6 @@ class YnabClient {
     );
 
     return {
-      failed: [],
       updated: enriched,
     };
   }
@@ -858,11 +856,19 @@ class YnabClient {
     // Invalidate cache since payee may have been created
     this.budgetCaches.delete(budgetId);
 
-    const newCache = await this.getBudgetCache(budgetId);
     const createdTransaction = response.data.transaction;
+    const duplicateImportIds = response.data.duplicate_import_ids ?? [];
+
     if (createdTransaction === undefined) {
+      if (duplicateImportIds.length > 0) {
+        throw new Error(
+          `Transaction not created: import_id "${duplicateImportIds[0]}" already exists on this account`,
+        );
+      }
       throw new Error('Failed to create transaction: no transaction returned');
     }
+
+    const newCache = await this.getBudgetCache(budgetId);
     return this.enrichTransaction(createdTransaction, newCache);
   }
 

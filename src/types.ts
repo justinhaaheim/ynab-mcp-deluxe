@@ -135,7 +135,6 @@ export interface PayeeHistoryResponse {
  * Update transaction result
  */
 export interface UpdateTransactionsResult {
-  failed: {error: string; id: string}[];
   updated: EnrichedTransaction[];
 }
 

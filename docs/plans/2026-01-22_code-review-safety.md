@@ -250,3 +250,126 @@ Dates are accepted as strings without validation that they're in YYYY-MM-DD form
 | src/test-setup.ts       | 24    | Reviewed |
 | src/mocks/handlers.ts   | 2559  | Reviewed |
 | src/mocks/node.ts       | 4     | Reviewed |
+
+---
+
+## SaveTransactionsResponseData Analysis
+
+The YNAB API returns `SaveTransactionsResponseData` for both `createTransaction` and `updateTransactions`:
+
+```typescript
+interface SaveTransactionsResponseData {
+  transaction_ids: Array<string>; // IDs that were saved
+  transaction?: TransactionDetail; // Single transaction result
+  transactions?: Array<TransactionDetail>; // Multiple transaction results
+  duplicate_import_ids?: Array<string>; // Import IDs that were skipped as duplicates
+  server_knowledge: number; // For delta sync
+}
+```
+
+### Current vs Recommended Return Values
+
+| Method               | Currently Returns                                | Issues                                                                         | Recommendation                                                                        |
+| -------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `updateTransactions` | `{ failed: [], updated: EnrichedTransaction[] }` | `failed` is always empty (misleading)                                          | Remove `failed`, keep `updated`                                                       |
+| `createTransaction`  | `EnrichedTransaction`                            | Doesn't surface `duplicate_import_ids`; throws misleading error for duplicates | Return `{ transaction, was_duplicate?: boolean }` or handle duplicate case explicitly |
+
+### Key Issue: Duplicate Import ID Handling
+
+When creating a transaction with an `import_id` that already exists on the same account:
+
+1. The YNAB API returns success
+2. `transaction` is `undefined`
+3. `duplicate_import_ids` contains the skipped ID
+
+Our current `createTransaction` code throws:
+
+> "Failed to create transaction: no transaction returned"
+
+This is misleading. The transaction wasn't created because it was a **duplicate**, not because of a failure. The LLM should be told it was a duplicate so it can adjust its behavior.
+
+### Recommended Changes
+
+1. **`updateTransactions`**: Remove the misleading `failed` field
+
+   ```typescript
+   // Before
+   return {failed: [], updated: enriched};
+
+   // After
+   return {updated: enriched};
+   ```
+
+2. **`createTransaction`**: Handle duplicates explicitly
+
+   ```typescript
+   const createdTransaction = response.data.transaction;
+   const duplicates = response.data.duplicate_import_ids ?? [];
+
+   if (createdTransaction === undefined) {
+     if (duplicates.length > 0) {
+       throw new Error(
+         `Transaction not created: import_id "${duplicates[0]}" already exists on this account`,
+       );
+     }
+     throw new Error('Failed to create transaction: no transaction returned');
+   }
+   ```
+
+3. ~~**Optional enhancement**: Return duplicate info instead of throwing~~ (Decided to throw with clear error message instead)
+
+### Implementation Status: ✅ COMPLETE
+
+**Changes made:**
+
+1. Removed `failed` field from `UpdateTransactionsResult` type and `updateTransactions` return value
+2. Added explicit `duplicate_import_ids` check in `createTransaction` - now throws a clear error message when a transaction is skipped due to duplicate import_id
+
+---
+
+## Next Audit Items
+
+### 1. API Response Data Audit (All Tools)
+
+Review each MCP tool to ensure we're making smart, thoughtful choices about what data to pass back to the LLM:
+
+| Tool                         | Status      | Notes                              |
+| ---------------------------- | ----------- | ---------------------------------- |
+| `get_budgets`                | Pending     |                                    |
+| `get_accounts`               | Pending     |                                    |
+| `get_categories`             | Pending     |                                    |
+| `get_payees`                 | Pending     |                                    |
+| `get_transactions`           | Pending     |                                    |
+| `get_transaction`            | Pending     |                                    |
+| `create_transaction`         | ✅ Reviewed | Added duplicate_import_id handling |
+| `update_transactions`        | ✅ Reviewed | Removed misleading `failed` field  |
+| `delete_transaction`         | Pending     |                                    |
+| `import_transactions`        | Pending     |                                    |
+| `get_scheduled_transactions` | Pending     |                                    |
+| `get_budget_month`           | Pending     |                                    |
+| `get_budget_months`          | Pending     |                                    |
+| `update_category_budget`     | Pending     |                                    |
+
+### 2. Error Handling Audit
+
+Understand the full error handling flow:
+
+- What happens when YNAB API returns an error?
+- How do we communicate errors back to the LLM?
+- Are error messages clear and actionable?
+- Are we surfacing the right level of detail?
+
+Questions to answer:
+
+1. What error types does the YNAB SDK throw?
+2. How does `createErrorResponse` format errors for MCP?
+3. Are there cases where we silently swallow errors?
+4. Do error messages help the LLM understand what went wrong?
+
+---
+
+## Changelog
+
+- 2026-01-22: Removed `failed` field from `updateTransactions` return (was always empty)
+- 2026-01-22: Added explicit duplicate import_id handling in `createTransaction`
+- 2026-01-22: Initial code review completed
