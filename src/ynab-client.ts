@@ -510,7 +510,7 @@ class YnabClient {
   }
 
   /**
-   * Update multiple transactions
+   * Update multiple transactions using the bulk PATCH endpoint
    */
   async updateTransactions(
     budgetId: string,
@@ -555,82 +555,26 @@ class YnabClient {
       payee_name: u.payee_name,
     }));
 
-    try {
-      const response = await api.transactions.updateTransactions(budgetId, {
-        transactions: patchTransactions,
-      });
+    const response = await api.transactions.updateTransactions(budgetId, {
+      transactions: patchTransactions,
+    });
 
-      // The API returns SaveTransactionsResponse which has transaction_ids for new ones
-      // and transactions array for updated ones
-      const updatedTxs = response.data.transactions ?? [];
+    // The API returns SaveTransactionsResponse which has transaction_ids for new ones
+    // and transactions array for updated ones
+    const updatedTxs = response.data.transactions ?? [];
 
-      // Always invalidate cache after write operations to ensure consistency
-      // (payees may be created, and we want fresh data for enrichment)
-      this.budgetCaches.delete(budgetId);
-      const freshCache = await this.getBudgetCache(budgetId);
-      const enriched = updatedTxs.map((tx) =>
-        this.enrichTransaction(tx, freshCache),
-      );
+    // Always invalidate cache after write operations to ensure consistency
+    // (payees may be created, and we want fresh data for enrichment)
+    this.budgetCaches.delete(budgetId);
+    const freshCache = await this.getBudgetCache(budgetId);
+    const enriched = updatedTxs.map((tx) =>
+      this.enrichTransaction(tx, freshCache),
+    );
 
-      return {
-        failed: [],
-        updated: enriched,
-      };
-    } catch (bulkError) {
-      // If bulk update fails, try individual updates to get specific errors
-      // Log the original error for debugging
-      const bulkErrorMessage =
-        bulkError instanceof Error ? bulkError.message : 'Unknown error';
-      console.warn(
-        `Bulk transaction update failed (${bulkErrorMessage}), falling back to individual updates`,
-      );
-
-      const updatedRaw: TransactionDetail[] = [];
-      const failed: {error: string; id: string}[] = [];
-
-      for (const update of updates) {
-        try {
-          const response = await api.transactions.updateTransaction(
-            budgetId,
-            update.id,
-            {
-              transaction: {
-                account_id: update.account_id,
-                amount: update.amount,
-                approved: update.approved,
-                category_id: update.category_id,
-                cleared: mapCleared(update.cleared),
-                date: update.date,
-                flag_color: update.flag_color as
-                  | TransactionFlagColor
-                  | null
-                  | undefined,
-                memo: update.memo,
-                payee_id: update.payee_id,
-                payee_name: update.payee_name,
-              },
-            },
-          );
-          // Store raw transaction, enrich after cache refresh
-          updatedRaw.push(response.data.transaction);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          failed.push({error: message, id: update.id});
-        }
-      }
-
-      // Always invalidate cache after write operations to ensure consistency
-      // (matches createTransaction behavior)
-      this.budgetCaches.delete(budgetId);
-
-      // Get fresh cache and enrich all updated transactions
-      const freshCache = await this.getBudgetCache(budgetId);
-      const updated = updatedRaw.map((tx) =>
-        this.enrichTransaction(tx, freshCache),
-      );
-
-      return {failed, updated};
-    }
+    return {
+      failed: [],
+      updated: enriched,
+    };
   }
 
   /**
