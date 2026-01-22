@@ -1,8 +1,130 @@
 /**
  * Sample test demonstrating MSW mock integration with the YNAB client
  */
-import {describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import * as ynab from 'ynab';
+
+import {assertWriteAllowed, isReadOnlyMode, ynabClient} from './ynab-client.js';
+
+// ============================================================================
+// Read-Only Mode Tests
+// ============================================================================
+
+describe('Read-Only Mode', () => {
+  beforeEach(() => {
+    // Clear any cached env values
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  describe('isReadOnlyMode()', () => {
+    it('returns false when YNAB_READ_ONLY is not set', () => {
+      expect(isReadOnlyMode()).toBe(false);
+    });
+
+    it('returns true when YNAB_READ_ONLY is "true"', () => {
+      vi.stubEnv('YNAB_READ_ONLY', 'true');
+      expect(isReadOnlyMode()).toBe(true);
+    });
+
+    it('returns true when YNAB_READ_ONLY is "1"', () => {
+      vi.stubEnv('YNAB_READ_ONLY', '1');
+      expect(isReadOnlyMode()).toBe(true);
+    });
+
+    it('returns false when YNAB_READ_ONLY is "false"', () => {
+      vi.stubEnv('YNAB_READ_ONLY', 'false');
+      expect(isReadOnlyMode()).toBe(false);
+    });
+
+    it('returns false when YNAB_READ_ONLY is "0"', () => {
+      vi.stubEnv('YNAB_READ_ONLY', '0');
+      expect(isReadOnlyMode()).toBe(false);
+    });
+  });
+
+  describe('assertWriteAllowed()', () => {
+    it('does not throw when read-only mode is disabled', () => {
+      vi.stubEnv('YNAB_READ_ONLY', 'false');
+      expect(() => assertWriteAllowed('test_operation')).not.toThrow();
+    });
+
+    it('throws when read-only mode is enabled', () => {
+      vi.stubEnv('YNAB_READ_ONLY', 'true');
+      expect(() => assertWriteAllowed('test_operation')).toThrow(
+        'Write operation "test_operation" blocked: Server is in read-only mode.',
+      );
+    });
+
+    it('includes guidance on how to enable writes in error message', () => {
+      vi.stubEnv('YNAB_READ_ONLY', 'true');
+      expect(() => assertWriteAllowed('test_operation')).toThrow(
+        'Set YNAB_READ_ONLY=false to enable writes.',
+      );
+    });
+  });
+
+  describe('Write operations blocked in read-only mode', () => {
+    const budgetId = 'test-budget-id';
+
+    beforeEach(() => {
+      vi.stubEnv('YNAB_READ_ONLY', 'true');
+    });
+
+    it('updateTransactions throws in read-only mode', async () => {
+      await expect(
+        ynabClient.updateTransactions(budgetId, [
+          {category_id: 'cat-1', id: 'txn-1'},
+        ]),
+      ).rejects.toThrow(
+        'Write operation "update_transactions" blocked: Server is in read-only mode.',
+      );
+    });
+
+    it('createTransactions throws in read-only mode', async () => {
+      await expect(
+        ynabClient.createTransactions(budgetId, [
+          {
+            account_id: 'acc-1',
+            amount: -10000,
+            date: '2026-01-22',
+          },
+        ]),
+      ).rejects.toThrow(
+        'Write operation "create_transactions" blocked: Server is in read-only mode.',
+      );
+    });
+
+    it('deleteTransaction throws in read-only mode', async () => {
+      await expect(
+        ynabClient.deleteTransaction(budgetId, 'txn-1'),
+      ).rejects.toThrow(
+        'Write operation "delete_transaction" blocked: Server is in read-only mode.',
+      );
+    });
+
+    it('importTransactions throws in read-only mode', async () => {
+      await expect(ynabClient.importTransactions(budgetId)).rejects.toThrow(
+        'Write operation "import_transactions" blocked: Server is in read-only mode.',
+      );
+    });
+
+    it('updateCategoryBudget throws in read-only mode', async () => {
+      await expect(
+        ynabClient.updateCategoryBudget(budgetId, '2026-01-01', 'cat-1', 50000),
+      ).rejects.toThrow(
+        'Write operation "update_category_budget" blocked: Server is in read-only mode.',
+      );
+    });
+  });
+});
+
+// ============================================================================
+// MSW Mock Integration Tests
+// ============================================================================
 
 describe('YNAB API Mocking', () => {
   it('should intercept API calls and return mocked data', async () => {
