@@ -49,11 +49,16 @@ The following methods call `assertWriteAllowed()`:
   - [x] `importTransactions`
   - [x] `updateCategoryBudget`
 
-### Phase 2: Write Operations (future)
+### Phase 2: Write Operations Success Tests
 
-- Test write operations succeed when NOT in read-only mode
-- Verify API is called with correct parameters
-- Verify cache invalidation works
+- [x] Test write operations succeed when NOT in read-only mode:
+  - [x] `updateTransactions` returns updated transactions
+  - [x] `createTransactions` returns created transactions and duplicates
+  - [x] `deleteTransaction` returns deleted transaction
+  - [x] `importTransactions` returns import count and transaction IDs
+  - [x] `updateCategoryBudget` returns enriched category
+- [ ] Verify API is called with correct parameters (future)
+- [ ] Verify cache invalidation works (future)
 
 ## Implementation Notes
 
@@ -82,4 +87,12 @@ Adding tests to `src/ynab-client.test.ts` for now (co-located with source).
   - 3 tests for `assertWriteAllowed()` (doesn't throw, throws, error message)
   - 5 tests for write operations blocked in read-only mode
 - All 18 tests pass (5 existing + 13 new)
+- `npm run signal` passes
+
+### Session 2 (2026-01-22)
+
+- Added 5 tests for write operations succeeding when NOT in read-only mode
+- Fixed mock data bug: `decimal_digits` was using unbounded `faker.number.int()`, causing `toFixed()` to fail (must be 0-100)
+- Changed to `faker.number.int({min: 0, max: 4})` for realistic currency decimal places
+- All 23 tests pass (5 original + 13 read-only + 5 write success)
 - `npm run signal` passes

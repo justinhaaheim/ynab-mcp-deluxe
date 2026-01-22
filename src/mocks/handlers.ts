@@ -528,7 +528,7 @@ export function getGetBudgets200Response() {
         currency_format: {
           iso_code: faker.lorem.words(),
           example_format: faker.lorem.words(),
-          decimal_digits: faker.number.int(),
+          decimal_digits: faker.number.int({max: 4, min: 0}),
           decimal_separator: faker.lorem.words(),
           symbol_first: faker.datatype.boolean(),
           group_separator: faker.lorem.words(),
@@ -592,7 +592,7 @@ export function getGetBudgets200Response() {
         currency_format: {
           iso_code: faker.lorem.words(),
           example_format: faker.lorem.words(),
-          decimal_digits: faker.number.int(),
+          decimal_digits: faker.number.int({max: 4, min: 0}),
           decimal_separator: faker.lorem.words(),
           symbol_first: faker.datatype.boolean(),
           group_separator: faker.lorem.words(),
@@ -663,7 +663,7 @@ export function getGetBudgetById200Response() {
         currency_format: {
           iso_code: faker.lorem.words(),
           example_format: faker.lorem.words(),
-          decimal_digits: faker.number.int(),
+          decimal_digits: faker.number.int({max: 4, min: 0}),
           decimal_separator: faker.lorem.words(),
           symbol_first: faker.datatype.boolean(),
           group_separator: faker.lorem.words(),
@@ -977,7 +977,7 @@ export function getGetBudgetSettingsById200Response() {
         currency_format: {
           iso_code: faker.lorem.words(),
           example_format: faker.lorem.words(),
-          decimal_digits: faker.number.int(),
+          decimal_digits: faker.number.int({max: 4, min: 0}),
           decimal_separator: faker.lorem.words(),
           symbol_first: faker.datatype.boolean(),
           group_separator: faker.lorem.words(),

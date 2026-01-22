@@ -120,6 +120,77 @@ describe('Read-Only Mode', () => {
       );
     });
   });
+
+  describe('Write operations succeed when not in read-only mode', () => {
+    const budgetId = 'test-budget-id';
+
+    beforeEach(() => {
+      // Ensure read-only mode is disabled
+      vi.stubEnv('YNAB_READ_ONLY', 'false');
+      // Provide a fake access token for the YNAB API client
+      vi.stubEnv('YNAB_ACCESS_TOKEN', 'fake-access-token');
+      // Clear any cached state from previous tests
+      ynabClient.clearCaches();
+    });
+
+    it('updateTransactions returns updated transactions', async () => {
+      const result = await ynabClient.updateTransactions(budgetId, [
+        {category_id: 'cat-1', id: 'txn-1'},
+      ]);
+
+      expect(result).toBeDefined();
+      expect(result.updated).toBeDefined();
+      expect(Array.isArray(result.updated)).toBe(true);
+    });
+
+    it('createTransactions returns created transactions and duplicates', async () => {
+      const result = await ynabClient.createTransactions(budgetId, [
+        {
+          account_id: 'acc-1',
+          amount: -10000,
+          date: '2026-01-22',
+        },
+      ]);
+
+      expect(result).toBeDefined();
+      expect(result.created).toBeDefined();
+      expect(Array.isArray(result.created)).toBe(true);
+      expect(result.duplicates).toBeDefined();
+      expect(Array.isArray(result.duplicates)).toBe(true);
+    });
+
+    it('deleteTransaction returns deleted transaction', async () => {
+      const result = await ynabClient.deleteTransaction(budgetId, 'txn-1');
+
+      expect(result).toBeDefined();
+      expect(result.deleted).toBeDefined();
+      expect(result.deleted.id).toBeDefined();
+    });
+
+    it('importTransactions returns import count and transaction IDs', async () => {
+      const result = await ynabClient.importTransactions(budgetId);
+
+      expect(result).toBeDefined();
+      expect(typeof result.imported_count).toBe('number');
+      expect(result.transaction_ids).toBeDefined();
+      expect(Array.isArray(result.transaction_ids)).toBe(true);
+    });
+
+    it('updateCategoryBudget returns enriched category', async () => {
+      const result = await ynabClient.updateCategoryBudget(
+        budgetId,
+        '2026-01-01',
+        'cat-1',
+        50000,
+      );
+
+      expect(result).toBeDefined();
+      expect(result.id).toBeDefined();
+      expect(result.name).toBeDefined();
+      expect(typeof result.budgeted).toBe('number');
+      expect(result.budgeted_currency).toBeDefined();
+    });
+  });
 });
 
 // ============================================================================
