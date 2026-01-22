@@ -852,18 +852,21 @@ class YnabClient {
   }
 
   /**
-   * Create a new transaction
+   * Create one or more transactions
    */
-  async createTransaction(
+  async createTransactions(
     budgetId: string,
-    transaction: CreateTransactionInput,
-  ): Promise<EnrichedTransaction> {
-    assertWriteAllowed('create_transaction');
+    transactions: CreateTransactionInput[],
+  ): Promise<{
+    created: EnrichedTransaction[];
+    duplicates: string[];
+  }> {
+    assertWriteAllowed('create_transactions');
 
     const api = this.getApi();
 
     const response = await api.transactions.createTransaction(budgetId, {
-      transaction: {
+      transactions: transactions.map((transaction) => ({
         account_id: transaction.account_id,
         amount: transaction.amount,
         approved: transaction.approved ?? false,
@@ -877,26 +880,24 @@ class YnabClient {
         memo: transaction.memo,
         payee_id: transaction.payee_id,
         payee_name: transaction.payee_name,
-      },
+      })),
     });
 
-    // Invalidate cache since payee may have been created
+    // Invalidate cache since payees may have been created
     this.budgetCaches.delete(budgetId);
 
-    const createdTransaction = response.data.transaction;
+    const createdTransactions = response.data.transactions ?? [];
     const duplicateImportIds = response.data.duplicate_import_ids ?? [];
 
-    if (createdTransaction === undefined) {
-      if (duplicateImportIds.length > 0) {
-        throw new Error(
-          `Transaction not created: import_id "${duplicateImportIds[0]}" already exists on this account`,
-        );
-      }
-      throw new Error('Failed to create transaction: no transaction returned');
-    }
-
     const newCache = await this.getBudgetCache(budgetId);
-    return this.enrichTransaction(createdTransaction, newCache);
+    const enriched = createdTransactions.map((t) =>
+      this.enrichTransaction(t, newCache),
+    );
+
+    return {
+      created: enriched,
+      duplicates: duplicateImportIds,
+    };
   }
 
   /**

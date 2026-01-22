@@ -945,7 +945,7 @@ Categories with goals:
 });
 
 // ============================================================================
-// Tool 11: create_transaction
+// Tool 11: create_transactions
 // ============================================================================
 
 const CategorySelectorSchema = z
@@ -967,52 +967,78 @@ const PayeeSelectorSchema = z
   .optional()
   .describe('Payee selector');
 
+const TransactionInputSchema = z.object({
+  account: z
+    .object({
+      id: z.string().optional().describe('Exact account ID'),
+      name: z.string().optional().describe('Account name (case-insensitive)'),
+    })
+    .describe('Account selector (required)'),
+  amount: z
+    .number()
+    .int()
+    .describe(
+      'Amount in milliunits (negative for outflow, positive for inflow)',
+    ),
+  approved: z.boolean().optional().describe('Whether approved'),
+  category: CategorySelectorSchema,
+  cleared: z.boolean().optional().describe('Whether cleared'),
+  date: z.string().describe('Transaction date (YYYY-MM-DD)'),
+  flag_color: z
+    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple'])
+    .optional()
+    .describe('Flag color'),
+  memo: z.string().optional().describe('Memo/note'),
+  payee: PayeeSelectorSchema,
+});
+
+type TransactionInputArgs = z.infer<typeof TransactionInputSchema>;
+
 server.addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: false,
-    title: 'Create Transaction',
+    title: 'Create Transactions',
   },
-  description: `Create a new transaction in YNAB.
+  description: `Create one or more transactions in YNAB.
 ${isReadOnlyMode() ? '\n**⚠️ SERVER IS IN READ-ONLY MODE - This operation will fail**\n' : ''}
 **Parameters:**
 
 budget - Which budget (uses default if omitted)
 
-account (required) - Account selector {"name": "..."} or {"id": "..."}
-
-date (required) - Transaction date (ISO format: YYYY-MM-DD)
-
-amount (required) - Amount in MILLIUNITS (integer)
-  - Negative for outflow (expenses): -45990 = $45.99 expense
-  - Positive for inflow (income): 300000 = $300.00 income
-
-payee - Payee selector {"name": "..."} or {"id": "..."}
-  - If using name and payee doesn't exist, YNAB creates it
-
-category - Category selector {"name": "..."} or {"id": "..."}
-
-memo - Optional memo/note
-
-cleared - Whether cleared (default: false)
-
-approved - Whether approved (default: false)
-
-flag_color - Optional flag color
+transactions (required) - Array of transactions to create (1-100), each containing:
+  - account (required) - Account selector {"name": "..."} or {"id": "..."}
+  - date (required) - Transaction date (ISO format: YYYY-MM-DD)
+  - amount (required) - Amount in MILLIUNITS (integer)
+    - Negative for outflow (expenses): -45990 = $45.99 expense
+    - Positive for inflow (income): 300000 = $300.00 income
+  - payee - Payee selector {"name": "..."} or {"id": "..."}
+    - If using name and payee doesn't exist, YNAB creates it
+  - category - Category selector {"name": "..."} or {"id": "..."}
+  - memo - Optional memo/note
+  - cleared - Whether cleared (default: false)
+  - approved - Whether approved (default: false)
+  - flag_color - Optional flag color
 
 **Examples:**
 
-Coffee purchase ($5.50):
-  {
+Single transaction (coffee purchase $5.50):
+  {"transactions": [{
     "account": {"name": "Checking"},
     "date": "2026-01-19",
     "amount": -5500,
     "payee": {"name": "Starbucks"},
     "category": {"name": "Coffee"}
-  }
+  }]}
+
+Multiple transactions:
+  {"transactions": [
+    {"account": {"name": "Checking"}, "date": "2026-01-19", "amount": -5500, "payee": {"name": "Starbucks"}, "category": {"name": "Coffee"}},
+    {"account": {"name": "Checking"}, "date": "2026-01-19", "amount": -12000, "payee": {"name": "Amazon"}, "category": {"name": "Shopping"}}
+  ]}
 
 Paycheck ($3000):
-  {
+  {"transactions": [{
     "account": {"name": "Checking"},
     "date": "2026-01-15",
     "amount": 3000000,
@@ -1020,107 +1046,103 @@ Paycheck ($3000):
     "category": {"name": "Ready to Assign"},
     "approved": true,
     "cleared": true
-  }`,
+  }]}`,
   execute: async (args) => {
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
-      validateSelector(args.account as AccountSelector, 'Account');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
 
-      // Resolve account (required)
-      const accountId = await ynabClient.resolveAccountId(
-        budgetId,
-        args.account as AccountSelector,
+      // Resolve selectors for each transaction
+      const inputs: CreateTransactionInput[] = await Promise.all(
+        args.transactions.map(async (t: TransactionInputArgs) => {
+          validateSelector(t.account as AccountSelector, 'Account');
+
+          // Resolve account (required)
+          const accountId = await ynabClient.resolveAccountId(
+            budgetId,
+            t.account as AccountSelector,
+          );
+
+          // Resolve category if provided
+          let categoryId: string | undefined;
+          const hasCategoryName =
+            t.category?.name !== undefined && t.category.name !== '';
+          const hasCategoryId =
+            t.category?.id !== undefined && t.category.id !== '';
+          if (t.category !== undefined && (hasCategoryName || hasCategoryId)) {
+            categoryId = await ynabClient.resolveCategoryId(
+              budgetId,
+              t.category as CategorySelector,
+            );
+          }
+
+          // Resolve payee if provided
+          let payeeId: string | undefined;
+          let payeeName: string | undefined;
+          const hasPayeeName =
+            t.payee?.name !== undefined && t.payee.name !== '';
+          const hasPayeeId = t.payee?.id !== undefined && t.payee.id !== '';
+          if (t.payee !== undefined && (hasPayeeName || hasPayeeId)) {
+            const resolvedPayeeId = await ynabClient.resolvePayeeId(
+              budgetId,
+              t.payee as PayeeSelector,
+            );
+            if (resolvedPayeeId !== null) {
+              payeeId = resolvedPayeeId;
+            } else if (hasPayeeName) {
+              // Payee not found, use name to create new
+              payeeName = t.payee.name;
+            }
+          }
+
+          return {
+            account_id: accountId,
+            amount: t.amount,
+            approved: t.approved,
+            category_id: categoryId,
+            cleared: t.cleared,
+            date: t.date,
+            flag_color: t.flag_color,
+            memo: t.memo,
+            payee_id: payeeId,
+            payee_name: payeeName,
+          };
+        }),
       );
 
-      // Resolve category if provided
-      let categoryId: string | undefined;
-      const hasCategoryName =
-        args.category?.name !== undefined && args.category.name !== '';
-      const hasCategoryId =
-        args.category?.id !== undefined && args.category.id !== '';
-      if (args.category !== undefined && (hasCategoryName || hasCategoryId)) {
-        categoryId = await ynabClient.resolveCategoryId(
-          budgetId,
-          args.category as CategorySelector,
-        );
-      }
+      const result = await ynabClient.createTransactions(budgetId, inputs);
 
-      // Resolve payee if provided
-      let payeeId: string | undefined;
-      let payeeName: string | undefined;
-      const hasPayeeName =
-        args.payee?.name !== undefined && args.payee.name !== '';
-      const hasPayeeId = args.payee?.id !== undefined && args.payee.id !== '';
-      if (args.payee !== undefined && (hasPayeeName || hasPayeeId)) {
-        const resolvedPayeeId = await ynabClient.resolvePayeeId(
-          budgetId,
-          args.payee as PayeeSelector,
-        );
-        if (resolvedPayeeId !== null) {
-          payeeId = resolvedPayeeId;
-        } else if (hasPayeeName) {
-          // Payee not found, use name to create new
-          payeeName = args.payee.name;
-        }
-      }
-
-      const input: CreateTransactionInput = {
-        account_id: accountId,
-        amount: args.amount,
-        approved: args.approved,
-        category_id: categoryId,
-        cleared: args.cleared,
-        date: args.date,
-        flag_color: args.flag_color,
-        memo: args.memo,
-        payee_id: payeeId,
-        payee_name: payeeName,
+      const response: {
+        created: EnrichedTransaction[];
+        duplicates?: string[];
+        message: string;
+      } = {
+        created: result.created,
+        message: `${result.created.length} transaction(s) created successfully`,
       };
 
-      const created = await ynabClient.createTransaction(budgetId, input);
+      if (result.duplicates.length > 0) {
+        response.duplicates = result.duplicates;
+        response.message += `, ${result.duplicates.length} duplicate(s) skipped`;
+      }
 
-      return JSON.stringify(
-        {
-          message: 'Transaction created successfully',
-          transaction: created,
-        },
-        null,
-        2,
-      );
+      return JSON.stringify(response, null, 2);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return createErrorResponse(message);
     }
   },
-  name: 'create_transaction',
+  name: 'create_transactions',
   parameters: z.object({
-    account: z
-      .object({
-        id: z.string().optional().describe('Exact account ID'),
-        name: z.string().optional().describe('Account name (case-insensitive)'),
-      })
-      .describe('Account selector (required)'),
-    amount: z
-      .number()
-      .int()
-      .describe(
-        'Amount in milliunits (negative for outflow, positive for inflow)',
-      ),
-    approved: z.boolean().optional().describe('Whether approved'),
     budget: BudgetSelectorSchema,
-    category: CategorySelectorSchema,
-    cleared: z.boolean().optional().describe('Whether cleared'),
-    date: z.string().describe('Transaction date (YYYY-MM-DD)'),
-    flag_color: z
-      .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple'])
-      .optional()
-      .describe('Flag color'),
-    memo: z.string().optional().describe('Memo/note'),
-    payee: PayeeSelectorSchema,
+    transactions: z
+      .array(TransactionInputSchema)
+      .min(1)
+      .max(100)
+      .describe('Array of transactions to create'),
   }),
 });
 
