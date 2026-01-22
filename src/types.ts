@@ -74,13 +74,20 @@ export interface EnrichedCategory {
  */
 export interface EnrichedAccount {
   balance: number;
-  // Milliunits
   balance_currency: number;
+  cleared_balance: number;
+  cleared_balance_currency: number;
   closed: boolean;
+  /** If linked, whether the connection is in an error state */
+  direct_import_in_error: boolean;
+  /** Whether the account is linked to a financial institution for automatic import */
+  direct_import_linked: boolean;
   id: string;
   name: string;
   on_budget: boolean;
-  type: string; // Currency amount
+  type: string;
+  uncleared_balance: number;
+  uncleared_balance_currency: number;
 }
 
 /**
@@ -226,6 +233,22 @@ export interface PayeeSelector {
 }
 
 /**
+ * Enriched scheduled subtransaction (for split scheduled transactions)
+ */
+export interface EnrichedScheduledSubTransaction {
+  amount: number;
+  amount_currency: number;
+  category_id: string | null;
+  category_name: string | null;
+  id: string;
+  memo: string | null;
+  payee_id: string | null;
+  payee_name: string | null;
+  scheduled_transaction_id: string;
+  transfer_account_id: string | null;
+}
+
+/**
  * Enriched scheduled transaction
  */
 export interface EnrichedScheduledTransaction {
@@ -243,6 +266,8 @@ export interface EnrichedScheduledTransaction {
   memo: string | null;
   payee_id: string | null;
   payee_name: string | null;
+  subtransactions: EnrichedScheduledSubTransaction[];
+  transfer_account_id: string | null;
 }
 
 /**

@@ -333,22 +333,181 @@ This is misleading. The transaction wasn't created because it was a **duplicate*
 
 Review each MCP tool to ensure we're making smart, thoughtful choices about what data to pass back to the LLM:
 
-| Tool                         | Status      | Notes                              |
-| ---------------------------- | ----------- | ---------------------------------- |
-| `get_budgets`                | Pending     |                                    |
-| `get_accounts`               | Pending     |                                    |
-| `get_categories`             | Pending     |                                    |
-| `get_payees`                 | Pending     |                                    |
-| `get_transactions`           | Pending     |                                    |
-| `get_transaction`            | Pending     |                                    |
-| `create_transaction`         | ✅ Reviewed | Added duplicate_import_id handling |
-| `update_transactions`        | ✅ Reviewed | Removed misleading `failed` field  |
-| `delete_transaction`         | Pending     |                                    |
-| `import_transactions`        | Pending     |                                    |
-| `get_scheduled_transactions` | Pending     |                                    |
-| `get_budget_month`           | Pending     |                                    |
-| `get_budget_months`          | Pending     |                                    |
-| `update_category_budget`     | Pending     |                                    |
+| Tool                         | Status      | Verdict | Notes                                          |
+| ---------------------------- | ----------- | ------- | ---------------------------------------------- |
+| `get_budgets`                | ✅ Reviewed | ✅ Good | Returns key fields, missing date_format        |
+| `get_accounts`               | ✅ Fixed    | ✅ Good | Added cleared/uncleared balance, import status |
+| `get_categories`             | ✅ Reviewed | ✅ Good | Minimal but appropriate for discovery          |
+| `get_payees`                 | ✅ Reviewed | ✅ Good | Returns all significant fields                 |
+| `query_transactions`         | ✅ Reviewed | ✅ Good | Good enrichment, minor missing fields          |
+| `get_payee_history`          | ✅ Reviewed | ✅ Good | Useful category distribution analysis          |
+| `create_transaction`         | ✅ Reviewed | ✅ Good | Added duplicate_import_id handling             |
+| `update_transactions`        | ✅ Reviewed | ✅ Good | Removed misleading `failed` field              |
+| `delete_transaction`         | ✅ Reviewed | ✅ Good | Returns deleted transaction for confirmation   |
+| `import_transactions`        | ✅ Fixed    | ✅ Good | Added cache invalidation                       |
+| `get_scheduled_transactions` | ✅ Fixed    | ✅ Good | Added subtransactions, transfer_account_id     |
+| `get_months`                 | ✅ Reviewed | ✅ Good | Good month summary data                        |
+| `get_budget_summary`         | ✅ Reviewed | ✅ Good | Comprehensive category details                 |
+| `update_category_budget`     | ✅ Reviewed | ✅ Good | Returns updated category                       |
+
+---
+
+### Detailed Audit Findings
+
+#### get_budgets ✅ Good
+
+**YNAB API returns:**
+
+- id, name, last_modified_on, first_month, last_month, date_format, currency_format
+
+**We return:**
+
+- id, name, last_modified_on, first_month, last_month, currency_format
+
+**Missing:** `date_format` (user's preferred date format)
+
+**Verdict:** Good as-is. Date format is rarely needed by LLM.
+
+---
+
+#### get_accounts ✅ Fixed
+
+**YNAB API returns:**
+
+- id, name, type, on_budget, closed, deleted
+- balance, cleared_balance, uncleared_balance
+- note, transfer_payee_id, last_reconciled_at
+- direct_import_linked, direct_import_in_error
+- debt_original_balance, debt_interest_rates, debt_minimum_payments, debt_escrow_amounts
+
+**We return:**
+
+- id, name, type, on_budget, closed
+- balance, balance_currency (enriched)
+
+**Missing (potentially useful):**
+| Field | Usefulness | Recommendation |
+|-------|------------|----------------|
+| `cleared_balance`, `uncleared_balance` | Medium - useful for reconciliation | Consider adding |
+| `note` | Low - rarely needed | Skip |
+| `direct_import_linked`, `direct_import_in_error` | Medium - useful for troubleshooting imports | Consider adding |
+| `last_reconciled_at` | Low | Skip |
+| `debt_*` fields | Low - only relevant for loan accounts | Skip |
+
+**Status:** ✅ FIXED - Added `cleared_balance`, `cleared_balance_currency`, `uncleared_balance`, `uncleared_balance_currency`, `direct_import_linked`, `direct_import_in_error`
+
+---
+
+#### get_categories ✅ Good
+
+**YNAB API returns (per category):**
+
+- id, name, hidden, deleted, note
+- category_group_id, original_category_group_id
+- balance, activity, budgeted
+- goal_type, goal_target, goal_percentage_complete, etc.
+
+**We return (in tool):**
+
+- id, name, hidden, grouped by group_id/group_name
+
+**Verdict:** Good as-is. The tool's purpose is category discovery for transaction categorization. Budget/goal info is available in `get_budget_summary`.
+
+---
+
+#### get_payees ✅ Good
+
+**YNAB API returns:**
+
+- id, name, transfer_account_id, deleted
+
+**We return:**
+
+- id, name, transfer_account_id
+
+**Verdict:** All significant fields included.
+
+---
+
+#### query_transactions ✅ Good
+
+**YNAB API returns:**
+
+- Core: id, date, amount, memo, cleared, approved
+- IDs: account_id, payee_id, category_id
+- Names: account_name, payee_name, category_name
+- Flags: flag_color, flag_name
+- Transfer: transfer_account_id, transfer_transaction_id
+- Import: import_id, import_payee_name, import_payee_name_original
+- Other: matched_transaction_id, debt_transaction_type, deleted, subtransactions
+
+**We return (EnrichedTransaction):**
+
+- All core fields ✅
+- All IDs ✅
+- All names ✅ + category_group_name (enriched)
+- flag_color ✅ (flag_name missing)
+- transfer_account_id ✅ (transfer_transaction_id missing)
+- All import fields ✅
+- amount_currency (enriched) ✅
+- subtransactions ✅
+
+**Missing (minor):**
+
+- `flag_name` - Custom name for flag color
+- `transfer_transaction_id` - ID of matching transfer
+- `matched_transaction_id` - ID of matched imported transaction
+- `debt_transaction_type` - For loan accounts
+
+**Verdict:** Good. We add valuable enrichment. Missing fields are edge cases.
+
+---
+
+#### get_scheduled_transactions ✅ Fixed
+
+**YNAB API returns:**
+
+- id, date_first, date_next, frequency, amount, memo
+- flag_color, flag_name
+- account_id, account_name, payee_id, payee_name
+- category_id, category_name, transfer_account_id
+- subtransactions, deleted
+
+**We now return:**
+
+- id, date_first, date_next, frequency, amount, amount_currency
+- memo, flag_color
+- account_id, account_name, payee_id, payee_name
+- category_id, category_name
+- **subtransactions** (with enriched fields) ✅ ADDED
+- **transfer_account_id** ✅ ADDED
+
+**Still missing (minor):**
+| Field | Usefulness | Recommendation |
+|-------|------------|----------------|
+| `subtransactions` | High - split scheduled transactions exist | **Add** |
+| `transfer_account_id` | Medium - needed for transfer scheduled transactions | **Add** |
+| `flag_name` | Low | Skip |
+
+**Recommendation:** Add `subtransactions` and `transfer_account_id`
+
+---
+
+#### import_transactions ✅ Fixed
+
+**Issue:** Did not invalidate the budget cache after importing. If new payees were created during import, subsequent transactions would not have enriched payee data until cache expired.
+
+**Status:** ✅ FIXED - Added `this.budgetCaches.delete(budgetId)` after import
+
+---
+
+#### Other Tools ✅ Good
+
+- `get_payee_history` - Good. Provides useful category distribution analysis.
+- `get_months` - Good. Returns monthly budget summaries.
+- `get_budget_summary` - Good. Comprehensive category details with goals.
+- `delete_transaction` - Good. Returns deleted transaction for confirmation.
+- `update_category_budget` - Good. Returns updated category with confirmation message.
 
 ### 2. Error Handling Audit
 
@@ -370,6 +529,9 @@ Questions to answer:
 
 ## Changelog
 
+- 2026-01-22: Added missing fields to `get_accounts` (cleared/uncleared balance, import status)
+- 2026-01-22: Added `subtransactions` and `transfer_account_id` to `get_scheduled_transactions`
+- 2026-01-22: Added cache invalidation to `import_transactions`
 - 2026-01-22: Removed `failed` field from `updateTransactions` return (was always empty)
 - 2026-01-22: Added explicit duplicate import_id handling in `createTransaction`
 - 2026-01-22: Initial code review completed

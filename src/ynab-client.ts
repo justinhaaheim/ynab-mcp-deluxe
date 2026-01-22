@@ -456,11 +456,23 @@ class YnabClient {
       .map((a) => ({
         balance: a.balance,
         balance_currency: this.toCurrency(a.balance, cache.currencyFormat),
+        cleared_balance: a.cleared_balance,
+        cleared_balance_currency: this.toCurrency(
+          a.cleared_balance,
+          cache.currencyFormat,
+        ),
         closed: a.closed,
+        direct_import_in_error: a.direct_import_in_error ?? false,
+        direct_import_linked: a.direct_import_linked ?? false,
         id: a.id,
         name: a.name,
         on_budget: a.on_budget,
         type: a.type,
+        uncleared_balance: a.uncleared_balance,
+        uncleared_balance_currency: this.toCurrency(
+          a.uncleared_balance,
+          cache.currencyFormat,
+        ),
       }));
   }
 
@@ -736,6 +748,21 @@ class YnabClient {
         memo: txn.memo ?? null,
         payee_id: txn.payee_id ?? null,
         payee_name: txn.payee_name ?? null,
+        subtransactions: txn.subtransactions
+          .filter((sub) => !sub.deleted)
+          .map((sub) => ({
+            amount: sub.amount,
+            amount_currency: this.toCurrency(sub.amount, cache.currencyFormat),
+            category_id: sub.category_id ?? null,
+            category_name: sub.category_name ?? null,
+            id: sub.id,
+            memo: sub.memo ?? null,
+            payee_id: sub.payee_id ?? null,
+            payee_name: sub.payee_name ?? null,
+            scheduled_transaction_id: sub.scheduled_transaction_id,
+            transfer_account_id: sub.transfer_account_id ?? null,
+          })),
+        transfer_account_id: txn.transfer_account_id ?? null,
       }));
   }
 
@@ -905,6 +932,9 @@ class YnabClient {
     const api = this.getApi();
 
     const response = await api.transactions.importTransactions(budgetId);
+
+    // Invalidate cache since import may create new payees
+    this.budgetCaches.delete(budgetId);
 
     return {
       imported_count: response.data.transaction_ids.length,
