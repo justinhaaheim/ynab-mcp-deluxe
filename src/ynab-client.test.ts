@@ -1,10 +1,14 @@
 /**
- * Sample test demonstrating MSW mock integration with the YNAB client
+ * Integration tests for YNAB MCP Server
  */
+import {http, HttpResponse} from 'msw';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import * as ynab from 'ynab';
 
+import {server} from './mocks/node.js';
 import {assertWriteAllowed, isReadOnlyMode, ynabClient} from './ynab-client.js';
+
+const YNAB_BASE_URL = 'https://api.ynab.com/v1';
 
 // ============================================================================
 // Read-Only Mode Tests
@@ -254,5 +258,508 @@ describe('YNAB API Mocking', () => {
     expect(response.data).toBeDefined();
     expect(response.data.transactions).toBeDefined();
     expect(Array.isArray(response.data.transactions)).toBe(true);
+  });
+});
+
+// ============================================================================
+// Selector Resolution Tests
+// ============================================================================
+
+describe('Selector Resolution', () => {
+  const budgetId = 'test-budget-id';
+
+  beforeEach(() => {
+    vi.stubEnv('YNAB_ACCESS_TOKEN', 'fake-access-token');
+    ynabClient.clearCaches();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  // Standard currency format for mocks
+  const mockCurrencyFormat = {
+    currency_symbol: '$',
+    decimal_digits: 2,
+    decimal_separator: '.',
+    display_symbol: true,
+    example_format: '123,456.78',
+    group_separator: ',',
+    iso_code: 'USD',
+    symbol_first: true,
+  };
+
+  // Helper to set up a complete budget cache mock with custom data
+  // getBudgetCache makes 4 parallel API calls, so we need to mock all of them
+  const setupBudgetCacheMock = (options: {
+    accounts?: {
+      closed?: boolean;
+      deleted?: boolean;
+      id: string;
+      name: string;
+    }[];
+    categories?: {
+      category_group_id: string;
+      deleted?: boolean;
+      hidden?: boolean;
+      id: string;
+      name: string;
+    }[];
+    categoryGroups?: {
+      deleted?: boolean;
+      hidden?: boolean;
+      id: string;
+      name: string;
+    }[];
+    payees?: {deleted?: boolean; id: string; name: string}[];
+  }) => {
+    server.use(
+      // Budget endpoint (for currency format)
+      http.get(`${YNAB_BASE_URL}/budgets/:budgetId`, () => {
+        return HttpResponse.json({
+          data: {
+            budget: {
+              currency_format: mockCurrencyFormat,
+              id: budgetId,
+              name: 'Test Budget',
+            },
+          },
+        });
+      }),
+      // Accounts endpoint
+      http.get(`${YNAB_BASE_URL}/budgets/:budgetId/accounts`, () => {
+        return HttpResponse.json({
+          data: {
+            accounts: (options.accounts ?? []).map((a) => ({
+              closed: a.closed ?? false,
+              deleted: a.deleted ?? false,
+              id: a.id,
+              name: a.name,
+            })),
+          },
+        });
+      }),
+      // Categories endpoint
+      http.get(`${YNAB_BASE_URL}/budgets/:budgetId/categories`, () => {
+        return HttpResponse.json({
+          data: {
+            category_groups: (options.categoryGroups ?? []).map((g) => ({
+              categories: (options.categories ?? [])
+                .filter((c) => c.category_group_id === g.id)
+                .map((c) => ({
+                  category_group_id: c.category_group_id,
+                  deleted: c.deleted ?? false,
+                  hidden: c.hidden ?? false,
+                  id: c.id,
+                  name: c.name,
+                })),
+              deleted: g.deleted ?? false,
+              hidden: g.hidden ?? false,
+              id: g.id,
+              name: g.name,
+            })),
+          },
+        });
+      }),
+      // Payees endpoint
+      http.get(`${YNAB_BASE_URL}/budgets/:budgetId/payees`, () => {
+        return HttpResponse.json({
+          data: {
+            payees: (options.payees ?? []).map((p) => ({
+              deleted: p.deleted ?? false,
+              id: p.id,
+              name: p.name,
+            })),
+          },
+        });
+      }),
+    );
+  };
+
+  describe('resolveAccountId()', () => {
+    const accountTestData = {
+      accounts: [
+        {id: 'acc-checking-id', name: 'Checking Account'},
+        {id: 'acc-savings-id', name: 'Savings Account'},
+        {closed: true, id: 'acc-closed-id', name: 'Closed Account'},
+      ],
+    };
+
+    it('resolves account by exact name (case-insensitive)', async () => {
+      setupBudgetCacheMock(accountTestData);
+      const id = await ynabClient.resolveAccountId(budgetId, {
+        name: 'checking account',
+      });
+      expect(id).toBe('acc-checking-id');
+    });
+
+    it('resolves account by ID', async () => {
+      setupBudgetCacheMock(accountTestData);
+      const id = await ynabClient.resolveAccountId(budgetId, {
+        id: 'acc-savings-id',
+      });
+      expect(id).toBe('acc-savings-id');
+    });
+
+    it('throws when both name and id are provided', async () => {
+      setupBudgetCacheMock(accountTestData);
+      await expect(
+        ynabClient.resolveAccountId(budgetId, {
+          id: 'acc-checking-id',
+          name: 'Checking Account',
+        }),
+      ).rejects.toThrow(
+        "Account selector must specify exactly one of: 'name' or 'id'.",
+      );
+    });
+
+    it('throws when neither name nor id is provided', async () => {
+      setupBudgetCacheMock(accountTestData);
+      await expect(ynabClient.resolveAccountId(budgetId, {})).rejects.toThrow(
+        "Account selector must specify 'name' or 'id'.",
+      );
+    });
+
+    it('throws when account name not found', async () => {
+      setupBudgetCacheMock(accountTestData);
+      await expect(
+        ynabClient.resolveAccountId(budgetId, {name: 'Nonexistent Account'}),
+      ).rejects.toThrow("No account found with name: 'Nonexistent Account'");
+    });
+
+    it('throws when account ID not found', async () => {
+      setupBudgetCacheMock(accountTestData);
+      await expect(
+        ynabClient.resolveAccountId(budgetId, {id: 'nonexistent-id'}),
+      ).rejects.toThrow("No account found with ID: 'nonexistent-id'");
+    });
+  });
+
+  describe('resolveCategoryId()', () => {
+    const categoryTestData = {
+      categories: [
+        {
+          category_group_id: 'group-1',
+          id: 'cat-groceries-id',
+          name: 'Groceries',
+        },
+        {category_group_id: 'group-1', id: 'cat-dining-id', name: 'Dining Out'},
+        {
+          category_group_id: 'group-1',
+          hidden: true,
+          id: 'cat-hidden-id',
+          name: 'Hidden Category',
+        },
+      ],
+      categoryGroups: [{id: 'group-1', name: 'Food'}],
+    };
+
+    it('resolves category by exact name (case-insensitive)', async () => {
+      setupBudgetCacheMock(categoryTestData);
+      const id = await ynabClient.resolveCategoryId(budgetId, {
+        name: 'groceries',
+      });
+      expect(id).toBe('cat-groceries-id');
+    });
+
+    it('resolves category by ID', async () => {
+      setupBudgetCacheMock(categoryTestData);
+      const id = await ynabClient.resolveCategoryId(budgetId, {
+        id: 'cat-dining-id',
+      });
+      expect(id).toBe('cat-dining-id');
+    });
+
+    it('throws when both name and id are provided', async () => {
+      setupBudgetCacheMock(categoryTestData);
+      await expect(
+        ynabClient.resolveCategoryId(budgetId, {
+          id: 'cat-groceries-id',
+          name: 'Groceries',
+        }),
+      ).rejects.toThrow(
+        "Category selector must specify exactly one of: 'name' or 'id'.",
+      );
+    });
+
+    it('throws when neither name nor id is provided', async () => {
+      setupBudgetCacheMock(categoryTestData);
+      await expect(ynabClient.resolveCategoryId(budgetId, {})).rejects.toThrow(
+        "Category selector must specify 'name' or 'id'.",
+      );
+    });
+
+    it('throws when category name not found', async () => {
+      setupBudgetCacheMock(categoryTestData);
+      await expect(
+        ynabClient.resolveCategoryId(budgetId, {name: 'Nonexistent Category'}),
+      ).rejects.toThrow("No category found with name: 'Nonexistent Category'");
+    });
+  });
+
+  describe('resolvePayeeId()', () => {
+    const payeeTestData = {
+      payees: [
+        {id: 'payee-amazon-id', name: 'Amazon'},
+        {id: 'payee-target-id', name: 'Target'},
+        {deleted: true, id: 'payee-deleted-id', name: 'Deleted Payee'},
+      ],
+    };
+
+    it('resolves payee by exact name (case-insensitive)', async () => {
+      setupBudgetCacheMock(payeeTestData);
+      const id = await ynabClient.resolvePayeeId(budgetId, {name: 'amazon'});
+      expect(id).toBe('payee-amazon-id');
+    });
+
+    it('resolves payee by ID', async () => {
+      setupBudgetCacheMock(payeeTestData);
+      const id = await ynabClient.resolvePayeeId(budgetId, {
+        id: 'payee-target-id',
+      });
+      expect(id).toBe('payee-target-id');
+    });
+
+    it('returns null when neither name nor id is provided', async () => {
+      setupBudgetCacheMock(payeeTestData);
+      const id = await ynabClient.resolvePayeeId(budgetId, {});
+      expect(id).toBeNull();
+    });
+
+    it('throws when both name and id are provided', async () => {
+      setupBudgetCacheMock(payeeTestData);
+      await expect(
+        ynabClient.resolvePayeeId(budgetId, {
+          id: 'payee-amazon-id',
+          name: 'Amazon',
+        }),
+      ).rejects.toThrow(
+        "Payee selector must specify exactly one of: 'name' or 'id'.",
+      );
+    });
+
+    it('throws when payee ID not found', async () => {
+      setupBudgetCacheMock(payeeTestData);
+      await expect(
+        ynabClient.resolvePayeeId(budgetId, {id: 'nonexistent-id'}),
+      ).rejects.toThrow("No payee found with ID: 'nonexistent-id'");
+    });
+
+    it('returns null when payee name not found (allows new payee creation)', async () => {
+      setupBudgetCacheMock(payeeTestData);
+      const id = await ynabClient.resolvePayeeId(budgetId, {
+        name: 'New Store',
+      });
+      expect(id).toBeNull();
+    });
+  });
+});
+
+// ============================================================================
+// API Error Handling Tests
+// ============================================================================
+
+describe('API Error Handling', () => {
+  const budgetId = 'test-budget-id';
+
+  beforeEach(() => {
+    vi.stubEnv('YNAB_ACCESS_TOKEN', 'fake-access-token');
+    ynabClient.clearCaches();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('throws on 401 Unauthorized', async () => {
+    server.use(
+      http.get(`${YNAB_BASE_URL}/budgets`, () => {
+        return HttpResponse.json(
+          {
+            error: {
+              detail: 'Invalid access token',
+              id: '401',
+              name: 'unauthorized',
+            },
+          },
+          {status: 401},
+        );
+      }),
+    );
+
+    await expect(ynabClient.getBudgets()).rejects.toThrow();
+  });
+
+  it('throws on 404 Not Found', async () => {
+    server.use(
+      http.get(`${YNAB_BASE_URL}/budgets/:budgetId`, () => {
+        return HttpResponse.json(
+          {error: {detail: 'Budget not found', id: '404', name: 'not_found'}},
+          {status: 404},
+        );
+      }),
+    );
+
+    await expect(ynabClient.getAccounts(budgetId)).rejects.toThrow();
+  });
+
+  it('throws on 429 Rate Limited', async () => {
+    server.use(
+      http.get(`${YNAB_BASE_URL}/budgets`, () => {
+        return HttpResponse.json(
+          {
+            error: {
+              detail: 'Too many requests',
+              id: '429',
+              name: 'too_many_requests',
+            },
+          },
+          {status: 429},
+        );
+      }),
+    );
+
+    await expect(ynabClient.getBudgets()).rejects.toThrow();
+  });
+
+  it('throws on 500 Server Error', async () => {
+    server.use(
+      http.get(`${YNAB_BASE_URL}/budgets`, () => {
+        return HttpResponse.json(
+          {
+            error: {
+              detail: 'Internal server error',
+              id: '500',
+              name: 'internal_error',
+            },
+          },
+          {status: 500},
+        );
+      }),
+    );
+
+    await expect(ynabClient.getBudgets()).rejects.toThrow();
+  });
+});
+
+// ============================================================================
+// Cache Behavior Tests
+// ============================================================================
+
+describe('Cache Behavior', () => {
+  const budgetId = 'test-budget-id';
+  let apiCallCount: number;
+
+  // Standard currency format for mocks
+  const mockCurrencyFormat = {
+    currency_symbol: '$',
+    decimal_digits: 2,
+    decimal_separator: '.',
+    display_symbol: true,
+    example_format: '123,456.78',
+    group_separator: ',',
+    iso_code: 'USD',
+    symbol_first: true,
+  };
+
+  // Helper to set up counting handlers for all 4 endpoints that getBudgetCache calls
+  const setupCountingMock = () => {
+    server.use(
+      http.get(`${YNAB_BASE_URL}/budgets/:budgetId`, () => {
+        apiCallCount++;
+        return HttpResponse.json({
+          data: {
+            budget: {
+              currency_format: mockCurrencyFormat,
+              id: budgetId,
+              name: 'Test Budget',
+            },
+          },
+        });
+      }),
+      http.get(`${YNAB_BASE_URL}/budgets/:budgetId/accounts`, () => {
+        apiCallCount++;
+        return HttpResponse.json({
+          data: {
+            accounts: [
+              {closed: false, deleted: false, id: 'acc-1', name: 'Account 1'},
+            ],
+          },
+        });
+      }),
+      http.get(`${YNAB_BASE_URL}/budgets/:budgetId/categories`, () => {
+        apiCallCount++;
+        return HttpResponse.json({
+          data: {
+            category_groups: [
+              {
+                categories: [
+                  {
+                    category_group_id: 'grp-1',
+                    deleted: false,
+                    hidden: false,
+                    id: 'cat-1',
+                    name: 'Category 1',
+                  },
+                ],
+                deleted: false,
+                hidden: false,
+                id: 'grp-1',
+                name: 'Group 1',
+              },
+            ],
+          },
+        });
+      }),
+      http.get(`${YNAB_BASE_URL}/budgets/:budgetId/payees`, () => {
+        apiCallCount++;
+        return HttpResponse.json({
+          data: {
+            payees: [{deleted: false, id: 'payee-1', name: 'Payee 1'}],
+          },
+        });
+      }),
+    );
+  };
+
+  beforeEach(() => {
+    vi.stubEnv('YNAB_ACCESS_TOKEN', 'fake-access-token');
+    ynabClient.clearCaches();
+    apiCallCount = 0;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('caches budget data after first fetch', async () => {
+    setupCountingMock();
+
+    // First call - should hit the API (4 parallel calls: budget, accounts, categories, payees)
+    await ynabClient.resolveAccountId(budgetId, {id: 'acc-1'});
+    expect(apiCallCount).toBe(4);
+
+    // Second call - should use cache (no additional API calls)
+    await ynabClient.resolveCategoryId(budgetId, {id: 'cat-1'});
+    expect(apiCallCount).toBe(4);
+
+    // Third call - should still use cache (no additional API calls)
+    await ynabClient.resolvePayeeId(budgetId, {id: 'payee-1'});
+    expect(apiCallCount).toBe(4);
+  });
+
+  it('clearCaches() forces fresh API call', async () => {
+    setupCountingMock();
+
+    // First call (4 parallel API calls)
+    await ynabClient.resolveAccountId(budgetId, {id: 'acc-1'});
+    expect(apiCallCount).toBe(4);
+
+    // Clear cache
+    ynabClient.clearCaches();
+
+    // Second call - should hit API again (4 more parallel API calls)
+    await ynabClient.resolveAccountId(budgetId, {id: 'acc-1'});
+    expect(apiCallCount).toBe(8);
   });
 });

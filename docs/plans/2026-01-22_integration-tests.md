@@ -60,6 +60,21 @@ The following methods call `assertWriteAllowed()`:
 - [ ] Verify API is called with correct parameters (future)
 - [ ] Verify cache invalidation works (future)
 
+### Phase 3: Error Handling, Selector Resolution, Cache Behavior Tests
+
+- [x] API Error Handling tests:
+  - [x] 401 Unauthorized
+  - [x] 404 Not Found
+  - [x] 429 Rate Limited
+  - [x] 500 Server Error
+- [x] Selector Resolution tests:
+  - [x] `resolveAccountId()` - by name, by ID, error cases
+  - [x] `resolveCategoryId()` - by name, by ID, error cases
+  - [x] `resolvePayeeId()` - by name, by ID, optional behavior
+- [x] Cache Behavior tests:
+  - [x] Budget data is cached after first fetch
+  - [x] `clearCaches()` forces fresh API call
+
 ## Implementation Notes
 
 ### Testing Environment Variables
@@ -95,4 +110,18 @@ Adding tests to `src/ynab-client.test.ts` for now (co-located with source).
 - Fixed mock data bug: `decimal_digits` was using unbounded `faker.number.int()`, causing `toFixed()` to fail (must be 0-100)
 - Changed to `faker.number.int({min: 0, max: 4})` for realistic currency decimal places
 - All 23 tests pass (5 original + 13 read-only + 5 write success)
+- `npm run signal` passes
+
+### Session 3 (2026-01-23)
+
+- Added 4 API Error Handling tests (401, 404, 429, 500 errors)
+- Added 17 Selector Resolution tests for `resolveAccountId()`, `resolveCategoryId()`, `resolvePayeeId()`
+- Added 2 Cache Behavior tests (cache hit + `clearCaches()`)
+- Key discovery: `getBudgetCache()` makes 4 parallel API calls:
+  - `GET /budgets/:budgetId/accounts`
+  - `GET /budgets/:budgetId/categories`
+  - `GET /budgets/:budgetId/payees`
+  - `GET /budgets/:budgetId` (for currency format only)
+- Created `setupBudgetCacheMock` helper to mock all 4 endpoints for selector tests
+- All 46 tests pass (23 previous + 4 error handling + 17 selector + 2 cache)
 - `npm run signal` passes
