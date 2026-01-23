@@ -35,6 +35,27 @@ The server exposes three types of capabilities:
 
 Use Zod schemas for parameter validation on tools and prompts.
 
+### FastMCP Conventions
+
+Always use FastMCP's built-in APIs and helpers rather than rolling your own. Key patterns:
+
+**Logging**: Use FastMCP's context-based logging, not `console.log`/`console.error`/stderr:
+
+```typescript
+server.addTool({
+  name: 'my_tool',
+  execute: async (args, { log }) => {
+    log.info('Starting operation...', { someData: args.value });
+    log.warn('Something unexpected', { details: '...' });
+    log.error('Operation failed', { error: '...' });
+    log.debug('Debug info', { state: '...' });
+    return result;
+  },
+});
+```
+
+**Reference**: [FastMCP README](https://github.com/punkpeye/fastmcp/blob/main/README.md)
+
 ## Runtime
 
 - **Runtime/Package Manager**: Bun (not npm/yarn)
