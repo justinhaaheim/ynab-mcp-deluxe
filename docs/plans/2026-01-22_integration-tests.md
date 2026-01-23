@@ -125,3 +125,17 @@ Adding tests to `src/ynab-client.test.ts` for now (co-located with source).
 - Created `setupBudgetCacheMock` helper to mock all 4 endpoints for selector tests
 - All 46 tests pass (23 previous + 4 error handling + 17 selector + 2 cache)
 - `npm run signal` passes
+
+### Session 4 (2026-01-23)
+
+- Added budget backup feature (separate from test coverage work):
+  - Created `src/backup.ts` with backup utilities
+  - Added `BudgetBackup` interface to `src/types.ts`
+  - Added `getBudgetByIdRaw()` to `src/ynab-client.ts`
+  - Added `backup_budget` MCP tool to `src/server.ts`
+  - Added automatic startup backup (enabled by default, disable with `YNAB_BACKUP_ON_START=false`)
+- Backup location: `~/.config/ynab-mcp-deluxe/backups/`
+- Backup filename format: `YYYY-MM-DD_HH-mm-ss_ynab-budget-[id]_backup.json`
+- Updated `CLAUDE.md` with FastMCP logging conventions
+- All 46 tests pass
+- `npm run signal` passes

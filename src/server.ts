@@ -23,6 +23,11 @@ import {FastMCP} from 'fastmcp';
 import {z} from 'zod';
 
 import {
+  backupAllBudgets,
+  backupBudget,
+  isBackupOnStartDisabled,
+} from './backup.js';
+import {
   applyJMESPath,
   calculateCategoryDistribution,
   createEnhancedErrorResponse,
@@ -1340,9 +1345,108 @@ Fund emergency fund with $1000:
 });
 
 // ============================================================================
-// Start the server
+// Tool 15: backup_budget
 // ============================================================================
 
-void server.start({
-  transportType: 'stdio',
+server.addTool({
+  annotations: {
+    openWorldHint: false,
+    readOnlyHint: true, // Doesn't modify YNAB data (only writes local files)
+    title: 'Backup Budget',
+  },
+  description: `Create a local backup of a YNAB budget.
+
+Saves a complete export of the budget to disk, including all accounts, categories, transactions, scheduled transactions, and budget month allocations.
+
+**Parameters:**
+
+budget - Which budget to backup (uses default if omitted)
+
+**Returns:**
+- file_path: Full path to the backup file
+- budget_name: Name of the backed up budget
+- backup_timestamp: When the backup was created
+
+**Backup location:** ~/.config/ynab-mcp-deluxe/backups/
+**Filename format:** YYYY-MM-DD_HH-mm-ss_ynab-budget-[id]_backup.json
+
+**Example:**
+
+Backup default budget:
+  {}
+
+Backup specific budget:
+  {"budget": {"name": "Household Budget"}}`,
+  execute: async (args, {log}) => {
+    try {
+      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+
+      const budgetId = await ynabClient.resolveBudgetId(
+        args.budget as BudgetSelector | undefined,
+      );
+
+      const budgetInfo = await ynabClient.getBudgetInfo(budgetId);
+
+      log.info('Starting backup...', {
+        budget_id: budgetId,
+        budget_name: budgetInfo.name,
+      });
+
+      const filePath = await backupBudget(budgetId);
+
+      log.info('Backup complete', {file_path: filePath});
+
+      return JSON.stringify(
+        {
+          backup_timestamp: new Date().toISOString(),
+          budget_id: budgetId,
+          budget_name: budgetInfo.name,
+          file_path: filePath,
+          message: `Successfully backed up "${budgetInfo.name}" to ${filePath}`,
+        },
+        null,
+        2,
+      );
+    } catch (error) {
+      return await createEnhancedErrorResponse(error, 'Backup budget');
+    }
+  },
+  name: 'backup_budget',
+  parameters: z.object({
+    budget: BudgetSelectorSchema,
+  }),
+});
+
+// ============================================================================
+// Startup backup and server start
+// ============================================================================
+
+async function performStartupBackup(): Promise<void> {
+  if (isBackupOnStartDisabled()) {
+    console.error(
+      '[YNAB MCP] Startup backup disabled via YNAB_BACKUP_ON_START=false',
+    );
+    return;
+  }
+
+  try {
+    console.error('[YNAB MCP] Performing startup backup...');
+    const paths = await backupAllBudgets();
+    for (const path of paths) {
+      console.error(`[YNAB MCP] Backed up: ${path}`);
+    }
+    console.error(
+      `[YNAB MCP] Startup backup complete (${paths.length} budget(s))`,
+    );
+  } catch (error) {
+    // Log but don't fail - backup is a safety feature, not critical
+    console.error(
+      '[YNAB MCP] Startup backup failed:',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+void performStartupBackup().then(() => {
+  void server.start({transportType: 'stdio'});
 });

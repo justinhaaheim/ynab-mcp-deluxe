@@ -608,6 +608,23 @@ class YnabClient {
   }
 
   /**
+   * Get raw budget detail for backup purposes
+   * Returns the complete budget data as returned by YNAB API
+   * (effectively a full budget export per YNAB docs)
+   */
+  async getBudgetByIdRaw(budgetId: string): Promise<{
+    budget: unknown;
+    server_knowledge: number;
+  }> {
+    const api = this.getApi();
+    const response = await api.budgets.getBudgetById(budgetId);
+    return {
+      budget: response.data.budget,
+      server_knowledge: response.data.server_knowledge,
+    };
+  }
+
+  /**
    * Resolve a category selector to a category ID
    */
   async resolveCategoryId(

@@ -342,6 +342,25 @@ export interface CreateTransactionInput {
 }
 
 /**
+ * Budget backup metadata
+ */
+export interface BudgetBackupMetadata {
+  backup_timestamp: string;
+  budget_id: string;
+  budget_name: string;
+  server_knowledge: number;
+  ynab_mcp_server_version: string;
+}
+
+/**
+ * Complete budget backup (raw YNAB export with metadata)
+ */
+export interface BudgetBackup {
+  backup_metadata: BudgetBackupMetadata;
+  budget: unknown; // Raw YNAB BudgetDetail response
+}
+
+/**
  * Journal entry for change tracking
  */
 export interface JournalEntry {
