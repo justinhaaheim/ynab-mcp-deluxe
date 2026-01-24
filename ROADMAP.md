@@ -11,6 +11,16 @@ A working MCP server with 15 tools for YNAB budget management:
 - Budget allocation (update category budgets)
 - Backup (manual and automatic on first tool call)
 
+## Important - Strategic Design
+
+1. **Review workflow design document** - `docs/plans/2026-01-19_ynab-workflows-mcp-design.md` contains comprehensive analysis of YNAB workflows (reconciliation, categorization, budget catch-up) and proposes workflow-oriented tools. Work backward from real user workflows to ensure our tools are maximally helpful for day-to-day and week-to-week YNAB usage.
+
+2. **Provide YNAB context to LLMs** - The LLM using this server needs to understand YNAB deeply: the Four Rules, how categories/budgeting works, common patterns, and anti-patterns to avoid. Options to explore:
+   - A `get_ynab_guide` tool that returns educational context on demand
+   - An MCP Resource that exposes YNAB methodology documentation
+   - An MCP Prompt template for "YNAB assistant" persona
+   - Including it in the server description (may be too verbose)
+
 ## Next Actions
 
 1. **Add liberal debug logging** - Use FastMCP's context `log.debug()` throughout tool execution for better observability during development and testing

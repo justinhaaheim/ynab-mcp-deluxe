@@ -1,7 +1,9 @@
 # Query Parameters vs JMESPath
 
 **Date:** 2026-01-24
-**Status:** Draft - not yet implemented
+**Status:** Possible future improvement - experimenting with JMESPath first
+
+> **Note:** We're going to experiment with the current JMESPath approach and see how well LLMs handle it in practice before implementing these changes. This document captures the design if we decide dedicated parameters are needed.
 
 ## Problem Statement
 
