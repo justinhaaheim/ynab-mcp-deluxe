@@ -66,6 +66,7 @@ Add reusable prompt templates for common workflows:
 
 ## Backlog
 
+- **Query parameter improvements** - Add dedicated parameters for common filters (approved, cleared, flag_color, amount range, field projection) to reduce reliance on JMESPath. See `docs/plans/2026-01-24_query-parameters-vs-jmespath.md`
 - Streaming for large result sets
 - Custom logger for server-side logging
 - Tool authorization (`canAccess`) for fine-grained permissions
