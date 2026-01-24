@@ -22,11 +22,7 @@ import type {
 import {FastMCP} from 'fastmcp';
 import {z} from 'zod';
 
-import {
-  backupAllBudgets,
-  backupBudget,
-  isBackupOnStartDisabled,
-} from './backup.js';
+import {backupBudget, performInitialBackupIfNeeded} from './backup.js';
 import {
   applyJMESPath,
   calculateCategoryDistribution,
@@ -82,9 +78,13 @@ Returns budget names, IDs, currency, and date ranges. Call this first if you nee
 
 **Example:**
   {}`,
-  execute: async () => {
+  execute: async (_args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('get_budgets called');
+
     try {
       const budgets = await ynabClient.getBudgets();
+      log.debug('Fetched budgets', {count: budgets.length});
       return JSON.stringify(budgets, null, 2);
     } catch (error) {
       return await createEnhancedErrorResponse(error, 'List budgets');
@@ -168,7 +168,14 @@ Just IDs and payees (minimal projection):
 - date, amount, amount_currency, memo, cleared, approved, flag_color
 - import_id, import_payee_name, import_payee_name_original
 - subtransactions (array, for split transactions)`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('query_transactions called', {
+      budget: args.budget,
+      limit: args.limit,
+      status: args.status,
+    });
+
     try {
       // Validate selectors
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
@@ -178,6 +185,7 @@ Just IDs and payees (minimal projection):
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
 
       // Resolve account ID if provided
       let accountId: string | undefined;
@@ -190,6 +198,7 @@ Just IDs and payees (minimal projection):
           budgetId,
           args.account as AccountSelector,
         );
+        log.debug('Resolved account', {accountId});
       }
 
       // Determine API type parameter
@@ -203,6 +212,7 @@ Just IDs and payees (minimal projection):
         sinceDate: args.since_date,
         type: apiType,
       });
+      log.debug('Fetched transactions from API', {count: transactions.length});
 
       // Apply additional filters not supported by API
       if (args.until_date !== undefined && args.until_date !== '') {
@@ -211,10 +221,12 @@ Just IDs and payees (minimal projection):
           undefined,
           args.until_date,
         );
+        log.debug('Filtered by until_date', {count: transactions.length});
       }
 
       if (args.payee_contains !== undefined && args.payee_contains !== '') {
         transactions = filterByPayee(transactions, args.payee_contains);
+        log.debug('Filtered by payee_contains', {count: transactions.length});
       }
 
       // If no account in API call but account filter specified, filter here
@@ -224,12 +236,14 @@ Just IDs and payees (minimal projection):
           args.account as AccountSelector,
         );
         transactions = filterByAccount(transactions, resolvedAccountId);
+        log.debug('Filtered by account', {count: transactions.length});
       }
 
       // Apply JMESPath if provided
       let result: unknown = transactions;
       if (args.query !== undefined && args.query !== '') {
         result = applyJMESPath(transactions, args.query);
+        log.debug('Applied JMESPath query');
       } else {
         // Apply sort_by only if query is NOT provided
         const sortBy = (args.sort_by ?? 'newest') as TransactionSortBy;
@@ -240,7 +254,9 @@ Just IDs and payees (minimal projection):
       // Apply limit
       const limit = args.limit ?? 50;
       if (Array.isArray(result)) {
-        result = result.slice(0, limit);
+        const sliced = result.slice(0, limit) as unknown[];
+        result = sliced;
+        log.debug('Applied limit', {limit, resultCount: sliced.length});
       }
 
       return JSON.stringify(result, null, 2);
@@ -332,19 +348,28 @@ Amazon transactions (limited):
 **Response includes:**
 - category_distribution: Array of {category_name, category_group_name, count, percentage}
 - transactions: The actual historical transactions`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('get_payee_history called', {
+      limit: args.limit,
+      payee: args.payee,
+    });
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
 
       // Get all transactions (we need categorized ones to learn patterns)
       let transactions = await ynabClient.getTransactions(budgetId, {});
+      log.debug('Fetched all transactions', {count: transactions.length});
 
       // Filter by payee
       transactions = filterByPayee(transactions, args.payee);
+      log.debug('Filtered by payee', {count: transactions.length});
 
       // Sort by newest first
       transactions = sortTransactions(transactions, 'newest');
@@ -355,11 +380,15 @@ Amazon transactions (limited):
 
       // Calculate category distribution
       const distribution = calculateCategoryDistribution(transactions);
+      log.debug('Calculated category distribution', {
+        categories: distribution.length,
+      });
 
       // Apply JMESPath to transactions if provided
       let resultTransactions: unknown = transactions;
       if (args.query !== undefined && args.query !== '') {
         resultTransactions = applyJMESPath(transactions, args.query);
+        log.debug('Applied JMESPath query');
       }
 
       const response: PayeeHistoryResponse = {
@@ -432,16 +461,22 @@ Just names and IDs:
 Array of category groups, each containing:
 - group_id, group_name
 - categories: Array of {id, name, hidden, ...}`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('get_categories called', {includeHidden: args.include_hidden});
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
+
       const includeHidden = args.include_hidden ?? false;
 
       const {groups} = await ynabClient.getCategories(budgetId, includeHidden);
+      log.debug('Fetched categories', {groupCount: groups.length});
 
       // Transform to the response format
       const response: CategoryGroupResponse[] = groups
@@ -463,6 +498,7 @@ Array of category groups, each containing:
       let result: unknown = response;
       if (args.query !== undefined && args.query !== '') {
         result = applyJMESPath(response, args.query);
+        log.debug('Applied JMESPath query');
       }
 
       return JSON.stringify(result, null, 2);
@@ -514,21 +550,28 @@ Including closed:
 
 Just checking accounts:
   {"query": "[?type == 'checking']"}`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('get_accounts called', {includeClosed: args.include_closed});
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
+
       const includeClosed = args.include_closed ?? false;
 
       const accounts = await ynabClient.getAccounts(budgetId, includeClosed);
+      log.debug('Fetched accounts', {count: accounts.length});
 
       // Apply JMESPath if provided
       let result: unknown = accounts;
       if (args.query !== undefined && args.query !== '') {
         result = applyJMESPath(accounts, args.query);
+        log.debug('Applied JMESPath query');
       }
 
       return JSON.stringify(result, null, 2);
@@ -611,13 +654,19 @@ Flag for review:
 
 **Response:**
 Returns updated transactions and any failures with error messages.`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('update_transactions called', {
+      transactionCount: args.transactions.length,
+    });
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
 
       const updates: TransactionUpdate[] = args.transactions.map((t) => ({
         account_id: t.account_id,
@@ -633,8 +682,12 @@ Returns updated transactions and any failures with error messages.`,
         payee_name: t.payee_name,
       }));
 
+      log.info('Updating transactions', {count: updates.length});
       const result: UpdateTransactionsResult =
         await ynabClient.updateTransactions(budgetId, updates);
+      log.info('Transactions updated successfully', {
+        updatedCount: result.updated.length,
+      });
 
       return JSON.stringify(result, null, 2);
     } catch (error) {
@@ -710,20 +763,26 @@ All payees:
 
 Search for a payee:
   {"query": "[?contains(name, 'Amazon')]"}`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('get_payees called');
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
 
       const payees = await ynabClient.getPayees(budgetId);
+      log.debug('Fetched payees', {count: payees.length});
 
       // Apply JMESPath if provided
       let result: unknown = payees;
       if (args.query !== undefined && args.query !== '') {
         result = applyJMESPath(payees, args.query);
+        log.debug('Applied JMESPath query');
       }
 
       return JSON.stringify(result, null, 2);
@@ -765,20 +824,26 @@ All scheduled transactions:
 
 Monthly bills only:
   {"query": "[?frequency == 'monthly']"}`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('get_scheduled_transactions called');
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
 
       const scheduled = await ynabClient.getScheduledTransactions(budgetId);
+      log.debug('Fetched scheduled transactions', {count: scheduled.length});
 
       // Apply JMESPath if provided
       let result: unknown = scheduled;
       if (args.query !== undefined && args.query !== '') {
         result = applyJMESPath(scheduled, args.query);
+        log.debug('Applied JMESPath query');
       }
 
       return JSON.stringify(result, null, 2);
@@ -823,20 +888,26 @@ All months:
 
 Recent months with positive income:
   {"query": "[?income > \`0\`] | [-5:]"}`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('get_months called');
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
 
       const months = await ynabClient.getBudgetMonths(budgetId);
+      log.debug('Fetched budget months', {count: months.length});
 
       // Apply JMESPath if provided
       let result: unknown = months;
       if (args.query !== undefined && args.query !== '') {
         result = applyJMESPath(months, args.query);
+        log.debug('Applied JMESPath query');
       }
 
       return JSON.stringify(result, null, 2);
@@ -890,13 +961,17 @@ Only overspent categories:
 
 Categories with goals:
   {"query": "categories[?goal_type != null]"}`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('get_budget_summary called', {month: args.month});
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
 
       // Determine month - use current if not specified
       let month = args.month;
@@ -904,19 +979,27 @@ Categories with goals:
         const now = new Date();
         month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
       }
+      log.debug('Using month', {month});
 
       const summary = await ynabClient.getBudgetMonth(budgetId, month);
+      log.debug('Fetched budget month', {
+        categoryCount: summary.categories.length,
+      });
 
       // Filter hidden categories if needed
       const includeHidden = args.include_hidden ?? false;
       if (!includeHidden) {
         summary.categories = summary.categories.filter((c) => !c.hidden);
+        log.debug('Filtered hidden categories', {
+          visibleCount: summary.categories.length,
+        });
       }
 
       // Apply JMESPath if provided
       let result: unknown = summary;
       if (args.query !== undefined && args.query !== '') {
         result = applyJMESPath(summary, args.query);
+        log.debug('Applied JMESPath query');
       }
 
       return JSON.stringify(result, null, 2);
@@ -1045,15 +1128,22 @@ Paycheck ($3000):
     "approved": true,
     "cleared": true
   }]}`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('create_transactions called', {
+      transactionCount: args.transactions.length,
+    });
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
 
       // Resolve selectors for each transaction
+      log.debug('Resolving selectors for transactions...');
       const inputs: CreateTransactionInput[] = await Promise.all(
         args.transactions.map(async (t: TransactionInputArgs) => {
           validateSelector(t.account as AccountSelector, 'Account');
@@ -1110,8 +1200,14 @@ Paycheck ($3000):
           };
         }),
       );
+      log.debug('Selectors resolved', {inputCount: inputs.length});
 
+      log.info('Creating transactions', {count: inputs.length});
       const result = await ynabClient.createTransactions(budgetId, inputs);
+      log.info('Transactions created', {
+        createdCount: result.created.length,
+        duplicateCount: result.duplicates.length,
+      });
 
       const response: {
         created: EnrichedTransaction[];
@@ -1164,18 +1260,26 @@ transaction_id (required) - The ID of the transaction to delete
 **Example:**
 
   {"transaction_id": "abc123-def456"}`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('delete_transaction called', {
+      transactionId: args.transaction_id,
+    });
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
 
+      log.info('Deleting transaction', {transactionId: args.transaction_id});
       const result = await ynabClient.deleteTransaction(
         budgetId,
         args.transaction_id,
       );
+      log.info('Transaction deleted successfully');
 
       return JSON.stringify(
         {
@@ -1217,15 +1321,21 @@ budget - Which budget (uses default if omitted)
 **Example:**
 
   {}`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('import_transactions called');
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
 
+      log.info('Importing transactions from linked accounts...');
       const result = await ynabClient.importTransactions(budgetId);
+      log.info('Import complete', {importedCount: result.imported_count});
 
       return JSON.stringify(
         {
@@ -1290,7 +1400,13 @@ Fund emergency fund with $1000:
     "category": {"name": "Emergency Fund"},
     "budgeted": 1000000
   }`,
-  execute: async (args) => {
+  execute: async (args, {log}) => {
+    await performInitialBackupIfNeeded(log);
+    log.debug('update_category_budget called', {
+      budgeted: args.budgeted,
+      month: args.month,
+    });
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
       validateSelector(args.category as CategorySelector, 'Category');
@@ -1298,19 +1414,30 @@ Fund emergency fund with $1000:
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
 
       // Resolve category
       const categoryId = await ynabClient.resolveCategoryId(
         budgetId,
         args.category as CategorySelector,
       );
+      log.debug('Resolved category', {categoryId});
 
+      log.info('Updating category budget', {
+        budgeted: args.budgeted,
+        categoryId,
+        month: args.month,
+      });
       const result = await ynabClient.updateCategoryBudget(
         budgetId,
         args.month,
         categoryId,
         args.budgeted,
       );
+      log.info('Category budget updated', {
+        categoryName: result.name,
+        newBudget: result.budgeted_currency,
+      });
 
       return JSON.stringify(
         {
@@ -1378,12 +1505,16 @@ Backup default budget:
 Backup specific budget:
   {"budget": {"name": "Household Budget"}}`,
   execute: async (args, {log}) => {
+    // Note: backup_budget does NOT trigger initial backup (would be recursive)
+    log.debug('backup_budget called', {budget: args.budget});
+
     try {
       validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
 
       const budgetId = await ynabClient.resolveBudgetId(
         args.budget as BudgetSelector | undefined,
       );
+      log.debug('Resolved budget', {budgetId});
 
       const budgetInfo = await ynabClient.getBudgetInfo(budgetId);
 
@@ -1418,35 +1549,7 @@ Backup specific budget:
 });
 
 // ============================================================================
-// Startup backup and server start
+// Start the server
 // ============================================================================
 
-async function performStartupBackup(): Promise<void> {
-  if (isBackupOnStartDisabled()) {
-    console.error(
-      '[YNAB MCP] Startup backup disabled via YNAB_BACKUP_ON_START=false',
-    );
-    return;
-  }
-
-  try {
-    console.error('[YNAB MCP] Performing startup backup...');
-    const paths = await backupAllBudgets();
-    for (const path of paths) {
-      console.error(`[YNAB MCP] Backed up: ${path}`);
-    }
-    console.error(
-      `[YNAB MCP] Startup backup complete (${paths.length} budget(s))`,
-    );
-  } catch (error) {
-    // Log but don't fail - backup is a safety feature, not critical
-    console.error(
-      '[YNAB MCP] Startup backup failed:',
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-}
-
-void performStartupBackup().then(() => {
-  void server.start({transportType: 'stdio'});
-});
+void server.start({transportType: 'stdio'});
