@@ -132,25 +132,80 @@ class YnabClient {
 
   /**
    * Resolve a budget selector to a budget ID
+   *
+   * IMPORTANT: If YNAB_BUDGET_ID is set, it acts as a HARD CONSTRAINT.
+   * Only that budget can be accessed - any attempt to use a different
+   * budget will throw an error. This is a safety mechanism for testing.
    */
   async resolveBudgetId(selector?: BudgetSelector): Promise<string> {
     const budgets = await this.getBudgets();
-
-    // If no selector provided, check env var, then last-used, then single budget
     const hasName = selector?.name !== undefined && selector.name !== '';
     const hasId = selector?.id !== undefined && selector.id !== '';
-    if (selector === undefined || (!hasName && !hasId)) {
-      // Check for YNAB_BUDGET_ID environment variable
-      const envBudgetId = process.env['YNAB_BUDGET_ID'];
-      if (envBudgetId !== undefined && envBudgetId !== '') {
-        const envBudget = budgets.find((b) => b.id === envBudgetId);
-        if (envBudget !== undefined) {
-          this.lastUsedBudgetId = envBudget.id;
-          return envBudget.id;
-        }
-        // If env var budget not found, warn but continue to other resolution
+
+    // Check for YNAB_BUDGET_ID environment variable - this is a HARD CONSTRAINT
+    const envBudgetId = process.env['YNAB_BUDGET_ID'];
+    const hasEnvConstraint = envBudgetId !== undefined && envBudgetId !== '';
+
+    if (hasEnvConstraint) {
+      // Verify the constrained budget exists
+      const constrainedBudget = budgets.find((b) => b.id === envBudgetId);
+      if (constrainedBudget === undefined) {
+        throw new Error(
+          `YNAB_BUDGET_ID is set to '${envBudgetId}' but no budget with that ID exists. ` +
+            `Available budgets: ${budgets.map((b) => `${b.name} (${b.id})`).join(', ')}.`,
+        );
       }
 
+      // If no selector provided, use the constrained budget
+      if (selector === undefined || (!hasName && !hasId)) {
+        this.lastUsedBudgetId = constrainedBudget.id;
+        return constrainedBudget.id;
+      }
+
+      // Validate selector format
+      if (hasName && hasId) {
+        throw new Error(
+          "Budget selector must specify exactly one of: 'name' or 'id'.",
+        );
+      }
+
+      // If selector specifies an ID, it MUST match the constrained ID
+      if (hasId) {
+        if (selector.id !== envBudgetId) {
+          throw new Error(
+            `Budget access denied. YNAB_BUDGET_ID restricts access to budget '${constrainedBudget.name}' (${envBudgetId}). ` +
+              `Attempted to access budget with ID: '${selector.id}'.`,
+          );
+        }
+        this.lastUsedBudgetId = constrainedBudget.id;
+        return constrainedBudget.id;
+      }
+
+      // If selector specifies a name, resolve it and verify it matches
+      const nameLower = (selector.name ?? '').toLowerCase();
+      const namedBudget = budgets.find(
+        (b) => b.name.toLowerCase() === nameLower,
+      );
+      if (namedBudget === undefined) {
+        throw new Error(
+          `No budget found with name: '${selector.name}'. ` +
+            `Note: YNAB_BUDGET_ID restricts access to '${constrainedBudget.name}'.`,
+        );
+      }
+      if (namedBudget.id !== envBudgetId) {
+        throw new Error(
+          `Budget access denied. YNAB_BUDGET_ID restricts access to budget '${constrainedBudget.name}' (${envBudgetId}). ` +
+            `Attempted to access budget '${namedBudget.name}' (${namedBudget.id}).`,
+        );
+      }
+      this.lastUsedBudgetId = constrainedBudget.id;
+      return constrainedBudget.id;
+    }
+
+    // No env constraint - use normal resolution logic
+
+    // If no selector provided, use last-used or single budget
+    if (selector === undefined || (!hasName && !hasId)) {
       if (this.lastUsedBudgetId !== null) {
         return this.lastUsedBudgetId;
       }
