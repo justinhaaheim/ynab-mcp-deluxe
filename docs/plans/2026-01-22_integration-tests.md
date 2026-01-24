@@ -152,3 +152,18 @@ Adding tests to `src/ynab-client.test.ts` for now (co-located with source).
 - Researched MCP permissions model (see notes in conversation)
 - All 46 tests pass
 - `npm run signal` passes
+
+### Session 6 (2026-01-23)
+
+- Enhanced auto backup to be per-budget with 24hr interval:
+  - Changed from global `initialBackupDone` flag to `lastBackupByBudget: Map<string, Date>`
+  - Tracks last backup time per budget ID (not globally)
+  - Backup triggers on first tool call for each budget
+  - Backup also triggers if 24+ hours since last backup of that budget
+  - Only persists for server lifetime (resets on restart)
+- Renamed `performInitialBackupIfNeeded(log)` to `performAutoBackupIfNeeded(budgetId, log)`
+- Moved backup call to AFTER budget ID resolution in each tool
+- `get_budgets` tool no longer triggers backup (no specific budget selected)
+- Added helper functions: `needsBackup(budgetId)`, `getLastBackupTime(budgetId)`, `resetBackupState()`
+- All 46 tests pass
+- `npm run signal` passes
