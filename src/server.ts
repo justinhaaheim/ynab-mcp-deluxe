@@ -1549,17 +1549,23 @@ Backup specific budget:
         budget_name: budgetInfo.name,
       });
 
+      const startTime = performance.now();
       const filePath = await backupBudget(budgetId);
+      const durationMs = Math.round(performance.now() - startTime);
 
-      log.info('Backup complete', {file_path: filePath});
+      log.info('Backup complete', {
+        duration_ms: durationMs,
+        file_path: filePath,
+      });
 
       return JSON.stringify(
         {
           backup_timestamp: new Date().toISOString(),
           budget_id: budgetId,
           budget_name: budgetInfo.name,
+          duration_ms: durationMs,
           file_path: filePath,
-          message: `Successfully backed up "${budgetInfo.name}" to ${filePath}`,
+          message: `Successfully backed up "${budgetInfo.name}" to ${filePath} (${durationMs}ms)`,
         },
         null,
         2,

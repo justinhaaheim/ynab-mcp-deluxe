@@ -197,11 +197,15 @@ export async function performAutoBackupIfNeeded(
       budget_id: budgetId,
     });
 
+    const startTime = performance.now();
     const filePath = await backupBudget(budgetId);
+    const durationMs = Math.round(performance.now() - startTime);
+
     lastBackupByBudget.set(budgetId, new Date());
 
     log.info('Automatic backup complete', {
       budget_id: budgetId,
+      duration_ms: durationMs,
       file_path: filePath,
     });
   } catch (error) {
