@@ -127,5 +127,3 @@ tmp/
 # Reference projects for analysis (not part of this codebase)
 reference-projects/
 
-# MCP config (contains tokens)
-.mcp.json

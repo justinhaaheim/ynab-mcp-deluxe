@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "ynab-dev": {
+      "command": "bun",
+      "args": ["run", "start"],
+      "cwd": ".",
+      "disabled": true,
+      "env": {
+        "YNAB_ACCESS_TOKEN": "$YNAB_PERSONAL_ACCESS_TOKEN",
+        "YNAB_BUDGET_ID": "$YNAB_TEST_BUDGET_ID",
+        "YNAB_READ_ONLY": "false"
+      }
+    },
+    "ynab-dev-ready-only": {
+      "command": "bun",
+      "args": ["run", "start"],
+      "cwd": ".",
+      "disabled": true,
+      "env": {
+        "YNAB_ACCESS_TOKEN": "$YNAB_PERSONAL_ACCESS_TOKEN",
+        "YNAB_BUDGET_ID": "$YNAB_TEST_BUDGET_ID",
+        "YNAB_READ_ONLY": "true"
+      }
+    },
+    "ynab-dev-mock": {
+      "command": "bun",
+      "args": ["run", "dev:mock"],
+      "cwd": ".",
+      "disabled": true
+    }
+  }
+}

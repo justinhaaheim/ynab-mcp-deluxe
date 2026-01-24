@@ -7,9 +7,12 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc",
-    "start": "tsx src/server.ts",
+    "start": "bun src/server.ts",
+    "start:mock": "bun src/server-with-mocks.ts",
     "dev": "fastmcp dev src/server.ts",
     "dev:mock": "fastmcp dev src/server-with-mocks.ts",
+    "dev:inspect": "fastmcp inspect src/server.ts",
+    "dev:inspect:mock": "fastmcp inspect src/server-with-mocks.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "generate:mocks": "curl -sL -o src/mocks/ynab-openapi.yaml https://api.ynab.com/papi/open_api_spec.yaml && npx msw-auto-mock src/mocks/ynab-openapi.yaml -o src/mocks --base-url https://api.ynab.com/v1 --typescript -c 200,201",
