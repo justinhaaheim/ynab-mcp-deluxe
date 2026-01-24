@@ -139,3 +139,16 @@ Adding tests to `src/ynab-client.test.ts` for now (co-located with source).
 - Updated `CLAUDE.md` with FastMCP logging conventions
 - All 46 tests pass
 - `npm run signal` passes
+
+### Session 5 (2026-01-23)
+
+- Revised backup strategy: trigger on first tool call instead of server startup
+  - Added `performInitialBackupIfNeeded(log)` function to `src/backup.ts`
+  - Added tracking flags: `initialBackupDone`, `initialBackupInProgress`
+  - Changed env var from `YNAB_BACKUP_ON_START` to `YNAB_AUTO_BACKUP`
+- Added liberal debug logging to all 15 MCP tools using FastMCP's context `log`
+- Created `ROADMAP.md` with future goals (OAuth, Resources, Prompts, Progress Reporting)
+- Fixed TypeScript type error: imported `SerializableValue` from fastmcp for `ContextLog` interface
+- Researched MCP permissions model (see notes in conversation)
+- All 46 tests pass
+- `npm run signal` passes
