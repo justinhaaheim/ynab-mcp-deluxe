@@ -20,7 +20,7 @@
     "lint": "bun run lint-base -- .",
     "lint:fix": "bun run lint-base -- --fix .",
     "prettier-check": "prettier --check .",
-    "prettier-write": "prettier --write .",
+    "prettier:write": "prettier --write .",
     "ts-check": "tsc --noEmit",
     "signal:serial": "bun run ts-check; bun run lint; bun run prettier-check",
     "signal": "bun run signal:serial",
