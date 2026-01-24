@@ -22,7 +22,7 @@ import type {
 import {FastMCP} from 'fastmcp';
 import {z} from 'zod';
 
-import {backupBudget, performInitialBackupIfNeeded} from './backup.js';
+import {backupBudget, performAutoBackupIfNeeded} from './backup.js';
 import {
   applyJMESPath,
   calculateCategoryDistribution,
@@ -79,7 +79,7 @@ Returns budget names, IDs, currency, and date ranges. Call this first if you nee
 **Example:**
   {}`,
   execute: async (_args, {log}) => {
-    await performInitialBackupIfNeeded(log);
+    // Note: get_budgets doesn't trigger auto backup (no specific budget selected)
     log.debug('get_budgets called');
 
     try {
@@ -169,7 +169,6 @@ Just IDs and payees (minimal projection):
 - import_id, import_payee_name, import_payee_name_original
 - subtransactions (array, for split transactions)`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('query_transactions called', {
       budget: args.budget,
       limit: args.limit,
@@ -186,6 +185,9 @@ Just IDs and payees (minimal projection):
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       // Resolve account ID if provided
       let accountId: string | undefined;
@@ -349,7 +351,6 @@ Amazon transactions (limited):
 - category_distribution: Array of {category_name, category_group_name, count, percentage}
 - transactions: The actual historical transactions`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('get_payee_history called', {
       limit: args.limit,
       payee: args.payee,
@@ -362,6 +363,9 @@ Amazon transactions (limited):
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       // Get all transactions (we need categorized ones to learn patterns)
       let transactions = await ynabClient.getTransactions(budgetId, {});
@@ -462,7 +466,6 @@ Array of category groups, each containing:
 - group_id, group_name
 - categories: Array of {id, name, hidden, ...}`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('get_categories called', {includeHidden: args.include_hidden});
 
     try {
@@ -472,6 +475,9 @@ Array of category groups, each containing:
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       const includeHidden = args.include_hidden ?? false;
 
@@ -551,7 +557,6 @@ Including closed:
 Just checking accounts:
   {"query": "[?type == 'checking']"}`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('get_accounts called', {includeClosed: args.include_closed});
 
     try {
@@ -561,6 +566,9 @@ Just checking accounts:
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       const includeClosed = args.include_closed ?? false;
 
@@ -655,7 +663,6 @@ Flag for review:
 **Response:**
 Returns updated transactions and any failures with error messages.`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('update_transactions called', {
       transactionCount: args.transactions.length,
     });
@@ -667,6 +674,9 @@ Returns updated transactions and any failures with error messages.`,
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       const updates: TransactionUpdate[] = args.transactions.map((t) => ({
         account_id: t.account_id,
@@ -764,7 +774,6 @@ All payees:
 Search for a payee:
   {"query": "[?contains(name, 'Amazon')]"}`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('get_payees called');
 
     try {
@@ -774,6 +783,9 @@ Search for a payee:
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       const payees = await ynabClient.getPayees(budgetId);
       log.debug('Fetched payees', {count: payees.length});
@@ -825,7 +837,6 @@ All scheduled transactions:
 Monthly bills only:
   {"query": "[?frequency == 'monthly']"}`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('get_scheduled_transactions called');
 
     try {
@@ -835,6 +846,9 @@ Monthly bills only:
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       const scheduled = await ynabClient.getScheduledTransactions(budgetId);
       log.debug('Fetched scheduled transactions', {count: scheduled.length});
@@ -889,7 +903,6 @@ All months:
 Recent months with positive income:
   {"query": "[?income > \`0\`] | [-5:]"}`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('get_months called');
 
     try {
@@ -899,6 +912,9 @@ Recent months with positive income:
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       const months = await ynabClient.getBudgetMonths(budgetId);
       log.debug('Fetched budget months', {count: months.length});
@@ -962,7 +978,6 @@ Only overspent categories:
 Categories with goals:
   {"query": "categories[?goal_type != null]"}`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('get_budget_summary called', {month: args.month});
 
     try {
@@ -972,6 +987,9 @@ Categories with goals:
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       // Determine month - use current if not specified
       let month = args.month;
@@ -1129,7 +1147,6 @@ Paycheck ($3000):
     "cleared": true
   }]}`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('create_transactions called', {
       transactionCount: args.transactions.length,
     });
@@ -1141,6 +1158,9 @@ Paycheck ($3000):
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       // Resolve selectors for each transaction
       log.debug('Resolving selectors for transactions...');
@@ -1261,7 +1281,6 @@ transaction_id (required) - The ID of the transaction to delete
 
   {"transaction_id": "abc123-def456"}`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('delete_transaction called', {
       transactionId: args.transaction_id,
     });
@@ -1273,6 +1292,9 @@ transaction_id (required) - The ID of the transaction to delete
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       log.info('Deleting transaction', {transactionId: args.transaction_id});
       const result = await ynabClient.deleteTransaction(
@@ -1322,7 +1344,6 @@ budget - Which budget (uses default if omitted)
 
   {}`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('import_transactions called');
 
     try {
@@ -1332,6 +1353,9 @@ budget - Which budget (uses default if omitted)
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       log.info('Importing transactions from linked accounts...');
       const result = await ynabClient.importTransactions(budgetId);
@@ -1401,7 +1425,6 @@ Fund emergency fund with $1000:
     "budgeted": 1000000
   }`,
   execute: async (args, {log}) => {
-    await performInitialBackupIfNeeded(log);
     log.debug('update_category_budget called', {
       budgeted: args.budgeted,
       month: args.month,
@@ -1415,6 +1438,9 @@ Fund emergency fund with $1000:
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
 
       // Resolve category
       const categoryId = await ynabClient.resolveCategoryId(

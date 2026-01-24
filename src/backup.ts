@@ -14,11 +14,15 @@ import {ynabClient} from './ynab-client.js';
 // Server version for backup metadata
 const SERVER_VERSION = '1.0.0';
 
-// Track whether initial backup has been performed this session
-let initialBackupDone = false;
+// Backup interval: 24 hours in milliseconds
+const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-// Track if initial backup is currently in progress (prevent concurrent runs)
-let initialBackupInProgress = false;
+// Track last backup time per budget (budget ID → timestamp)
+// Only persists for the lifetime of this server instance
+const lastBackupByBudget = new Map<string, Date>();
+
+// Track which budgets currently have a backup in progress (prevent concurrent runs)
+const backupInProgressByBudget = new Set<string>();
 
 /**
  * Logger interface matching FastMCP's context log
@@ -48,18 +52,30 @@ export function isAutoBackupDisabled(): boolean {
 }
 
 /**
- * Reset the initial backup flag (for testing)
+ * Reset backup tracking state (for testing)
  */
-export function resetInitialBackupFlag(): void {
-  initialBackupDone = false;
-  initialBackupInProgress = false;
+export function resetBackupState(): void {
+  lastBackupByBudget.clear();
+  backupInProgressByBudget.clear();
 }
 
 /**
- * Check if initial backup has been done
+ * Get the last backup time for a budget (for testing)
  */
-export function hasInitialBackupBeenDone(): boolean {
-  return initialBackupDone;
+export function getLastBackupTime(budgetId: string): Date | undefined {
+  return lastBackupByBudget.get(budgetId);
+}
+
+/**
+ * Check if a budget needs backup (first time or 24+ hours since last)
+ */
+export function needsBackup(budgetId: string): boolean {
+  const lastBackup = lastBackupByBudget.get(budgetId);
+  if (lastBackup === undefined) {
+    return true; // Never backed up this session
+  }
+  const elapsed = Date.now() - lastBackup.getTime();
+  return elapsed >= BACKUP_INTERVAL_MS;
 }
 
 /**
@@ -138,44 +154,63 @@ export async function backupAllBudgets(): Promise<string[]> {
 }
 
 /**
- * Perform initial backup if not already done this session
- * Called automatically on first tool invocation
+ * Perform automatic backup for a specific budget if needed.
+ * Backs up if:
+ * - This budget hasn't been backed up this session, OR
+ * - It's been 24+ hours since the last backup of this budget
+ *
+ * Called automatically from tools that operate on a specific budget.
  */
-export async function performInitialBackupIfNeeded(
+export async function performAutoBackupIfNeeded(
+  budgetId: string,
   log: ContextLog,
 ): Promise<void> {
-  // Skip if already done or disabled
-  if (initialBackupDone || isAutoBackupDisabled()) {
-    log.debug('Skipping initial backup', {
-      alreadyDone: initialBackupDone,
-      disabled: isAutoBackupDisabled(),
+  // Skip if disabled
+  if (isAutoBackupDisabled()) {
+    log.debug('Auto backup disabled', {budget_id: budgetId});
+    return;
+  }
+
+  // Check if backup is needed
+  if (!needsBackup(budgetId)) {
+    const lastBackup = lastBackupByBudget.get(budgetId);
+    log.debug('Backup not needed for budget', {
+      budget_id: budgetId,
+      last_backup: lastBackup?.toISOString(),
     });
     return;
   }
 
-  // Prevent concurrent backup attempts
-  if (initialBackupInProgress) {
-    log.debug('Initial backup already in progress, skipping');
+  // Prevent concurrent backup attempts for the same budget
+  if (backupInProgressByBudget.has(budgetId)) {
+    log.debug('Backup already in progress for budget', {budget_id: budgetId});
     return;
   }
 
-  initialBackupInProgress = true;
+  backupInProgressByBudget.add(budgetId);
 
   try {
-    log.info('Performing automatic backup on first tool call...');
-    const paths = await backupAllBudgets();
-    initialBackupDone = true;
+    const lastBackup = lastBackupByBudget.get(budgetId);
+    const reason =
+      lastBackup !== undefined ? '24+ hours since last backup' : 'first access';
+    log.info(`Performing automatic backup (${reason})...`, {
+      budget_id: budgetId,
+    });
 
-    for (const path of paths) {
-      log.info('Backup created', {file_path: path});
-    }
-    log.info('Automatic backup complete', {budget_count: paths.length});
+    const filePath = await backupBudget(budgetId);
+    lastBackupByBudget.set(budgetId, new Date());
+
+    log.info('Automatic backup complete', {
+      budget_id: budgetId,
+      file_path: filePath,
+    });
   } catch (error) {
     // Log but don't fail the tool call - backup is a safety feature
     log.warn('Automatic backup failed (continuing with tool execution)', {
+      budget_id: budgetId,
       error: error instanceof Error ? error.message : String(error),
     });
   } finally {
-    initialBackupInProgress = false;
+    backupInProgressByBudget.delete(budgetId);
   }
 }
