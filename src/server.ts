@@ -19,7 +19,7 @@ import type {
   UpdateTransactionsResult,
 } from './types.js';
 
-import {FastMCP} from 'fastmcp';
+import {FastMCP, type SerializableValue} from 'fastmcp';
 import {z} from 'zod';
 
 import {backupBudget, performAutoBackupIfNeeded} from './backup.js';
@@ -36,6 +36,9 @@ import {
 import {isReadOnlyMode, ynabClient} from './ynab-client.js';
 
 const server = new FastMCP({
+  instructions: `MCP server for YNAB budget management.
+
+Caching: Data (accounts, categories, payees) is cached to minimize API calls and respect YNAB's rate limit (200 requests/hour). Cache is automatically invalidated after write operations. Use force_refresh: true on any read tool to manually invalidate the cache and fetch fresh data.`,
   name: 'YNAB MCP Server',
   version: '1.0.0',
 });
@@ -59,6 +62,49 @@ const AccountSelectorSchema = z
   })
   .optional()
   .describe('Filter to specific account');
+
+const ForceRefreshSchema = z
+  .boolean()
+  .default(false)
+  .optional()
+  .describe('Invalidate cache and fetch fresh data from YNAB API');
+
+// ============================================================================
+// Helper: Handle force_refresh and resolve budget
+// ============================================================================
+
+interface ForceRefreshArgs {
+  budget?: BudgetSelector;
+  force_refresh?: boolean;
+}
+
+interface ToolLog {
+  debug: (message: string, data?: SerializableValue) => void;
+  info: (message: string, data?: SerializableValue) => void;
+}
+
+/**
+ * Validates budget selector, resolves budget ID, and handles force_refresh.
+ * Call this at the start of read tools that support force_refresh.
+ *
+ * @returns The resolved budget ID
+ */
+async function prepareBudgetRequest(
+  args: ForceRefreshArgs,
+  log: ToolLog,
+): Promise<string> {
+  validateSelector(args.budget, 'Budget');
+
+  const budgetId = await ynabClient.resolveBudgetId(args.budget);
+  log.debug('Resolved budget', {budgetId});
+
+  if (args.force_refresh === true) {
+    log.info('Force refresh requested, invalidating cache', {budgetId});
+    ynabClient.invalidateCache(budgetId);
+  }
+
+  return budgetId;
+}
 
 // ============================================================================
 // Tool 1: get_budgets
@@ -176,15 +222,8 @@ Just IDs and payees (minimal projection):
     });
 
     try {
-      // Validate selectors
-      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+      const budgetId = await prepareBudgetRequest(args, log);
       validateSelector(args.account as AccountSelector | undefined, 'Account');
-
-      // Resolve budget ID
-      const budgetId = await ynabClient.resolveBudgetId(
-        args.budget as BudgetSelector | undefined,
-      );
-      log.debug('Resolved budget', {budgetId});
 
       // Auto backup if needed (first access or 24+ hours since last backup)
       await performAutoBackupIfNeeded(budgetId, log);
@@ -270,6 +309,7 @@ Just IDs and payees (minimal projection):
   parameters: z.object({
     account: AccountSelectorSchema,
     budget: BudgetSelectorSchema,
+    force_refresh: ForceRefreshSchema,
     limit: z
       .number()
       .int()
@@ -357,12 +397,7 @@ Amazon transactions (limited):
     });
 
     try {
-      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
-
-      const budgetId = await ynabClient.resolveBudgetId(
-        args.budget as BudgetSelector | undefined,
-      );
-      log.debug('Resolved budget', {budgetId});
+      const budgetId = await prepareBudgetRequest(args, log);
 
       // Auto backup if needed (first access or 24+ hours since last backup)
       await performAutoBackupIfNeeded(budgetId, log);
@@ -410,6 +445,7 @@ Amazon transactions (limited):
   name: 'get_payee_history',
   parameters: z.object({
     budget: BudgetSelectorSchema,
+    force_refresh: ForceRefreshSchema,
     limit: z
       .number()
       .int()
@@ -469,12 +505,7 @@ Array of category groups, each containing:
     log.debug('get_categories called', {includeHidden: args.include_hidden});
 
     try {
-      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
-
-      const budgetId = await ynabClient.resolveBudgetId(
-        args.budget as BudgetSelector | undefined,
-      );
-      log.debug('Resolved budget', {budgetId});
+      const budgetId = await prepareBudgetRequest(args, log);
 
       // Auto backup if needed (first access or 24+ hours since last backup)
       await performAutoBackupIfNeeded(budgetId, log);
@@ -515,6 +546,7 @@ Array of category groups, each containing:
   name: 'get_categories',
   parameters: z.object({
     budget: BudgetSelectorSchema,
+    force_refresh: ForceRefreshSchema,
     include_hidden: z
       .boolean()
       .default(false)
@@ -560,12 +592,7 @@ Just checking accounts:
     log.debug('get_accounts called', {includeClosed: args.include_closed});
 
     try {
-      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
-
-      const budgetId = await ynabClient.resolveBudgetId(
-        args.budget as BudgetSelector | undefined,
-      );
-      log.debug('Resolved budget', {budgetId});
+      const budgetId = await prepareBudgetRequest(args, log);
 
       // Auto backup if needed (first access or 24+ hours since last backup)
       await performAutoBackupIfNeeded(budgetId, log);
@@ -590,6 +617,7 @@ Just checking accounts:
   name: 'get_accounts',
   parameters: z.object({
     budget: BudgetSelectorSchema,
+    force_refresh: ForceRefreshSchema,
     include_closed: z
       .boolean()
       .default(false)
@@ -777,12 +805,7 @@ Search for a payee:
     log.debug('get_payees called');
 
     try {
-      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
-
-      const budgetId = await ynabClient.resolveBudgetId(
-        args.budget as BudgetSelector | undefined,
-      );
-      log.debug('Resolved budget', {budgetId});
+      const budgetId = await prepareBudgetRequest(args, log);
 
       // Auto backup if needed (first access or 24+ hours since last backup)
       await performAutoBackupIfNeeded(budgetId, log);
@@ -805,6 +828,7 @@ Search for a payee:
   name: 'get_payees',
   parameters: z.object({
     budget: BudgetSelectorSchema,
+    force_refresh: ForceRefreshSchema,
     query: z.string().optional().describe('Optional JMESPath expression'),
   }),
 });
@@ -840,12 +864,7 @@ Monthly bills only:
     log.debug('get_scheduled_transactions called');
 
     try {
-      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
-
-      const budgetId = await ynabClient.resolveBudgetId(
-        args.budget as BudgetSelector | undefined,
-      );
-      log.debug('Resolved budget', {budgetId});
+      const budgetId = await prepareBudgetRequest(args, log);
 
       // Auto backup if needed (first access or 24+ hours since last backup)
       await performAutoBackupIfNeeded(budgetId, log);
@@ -871,6 +890,7 @@ Monthly bills only:
   name: 'get_scheduled_transactions',
   parameters: z.object({
     budget: BudgetSelectorSchema,
+    force_refresh: ForceRefreshSchema,
     query: z.string().optional().describe('Optional JMESPath expression'),
   }),
 });
@@ -906,12 +926,7 @@ Recent months with positive income:
     log.debug('get_months called');
 
     try {
-      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
-
-      const budgetId = await ynabClient.resolveBudgetId(
-        args.budget as BudgetSelector | undefined,
-      );
-      log.debug('Resolved budget', {budgetId});
+      const budgetId = await prepareBudgetRequest(args, log);
 
       // Auto backup if needed (first access or 24+ hours since last backup)
       await performAutoBackupIfNeeded(budgetId, log);
@@ -934,6 +949,7 @@ Recent months with positive income:
   name: 'get_months',
   parameters: z.object({
     budget: BudgetSelectorSchema,
+    force_refresh: ForceRefreshSchema,
     query: z.string().optional().describe('Optional JMESPath expression'),
   }),
 });
@@ -981,12 +997,7 @@ Categories with goals:
     log.debug('get_budget_summary called', {month: args.month});
 
     try {
-      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
-
-      const budgetId = await ynabClient.resolveBudgetId(
-        args.budget as BudgetSelector | undefined,
-      );
-      log.debug('Resolved budget', {budgetId});
+      const budgetId = await prepareBudgetRequest(args, log);
 
       // Auto backup if needed (first access or 24+ hours since last backup)
       await performAutoBackupIfNeeded(budgetId, log);
@@ -1028,6 +1039,7 @@ Categories with goals:
   name: 'get_budget_summary',
   parameters: z.object({
     budget: BudgetSelectorSchema,
+    force_refresh: ForceRefreshSchema,
     include_hidden: z
       .boolean()
       .default(false)

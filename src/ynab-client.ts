@@ -1068,6 +1068,19 @@ class YnabClient {
     this.budgets = null;
     this.budgetCaches.clear();
   }
+
+  /**
+   * Invalidate cache for a specific budget, forcing fresh data on next access.
+   * If no budgetId provided, invalidates all budget caches.
+   */
+  invalidateCache(budgetId?: string): void {
+    if (budgetId !== undefined) {
+      this.budgetCaches.delete(budgetId);
+    } else {
+      this.budgetCaches.clear();
+      this.budgets = null;
+    }
+  }
 }
 
 // Export singleton instance

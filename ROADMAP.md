@@ -37,6 +37,18 @@ A working MCP server with 15 tools for YNAB budget management:
 
 ## Future Enhancements
 
+### Smarter Caching with Delta Sync
+
+Current caching: session-based, invalidated on write operations or via `force_refresh` parameter.
+
+Future direction: Download the **entire budget** on first access (single API call to `/budgets/{id}`), then use YNAB's delta sync (`last_knowledge_of_server` parameter) for efficient incremental updates when cache is invalidated or TTL expires. Benefits:
+
+- Fewer API calls (one bulk fetch vs multiple endpoint calls)
+- Efficient updates (only changed data returned)
+- Better rate limit management (200 req/hour limit)
+
+The YNAB API returns `server_knowledge` with responses - store this and pass it back to get only changes since that point.
+
 ### OAuth Authentication
 
 Currently using environment variable (`YNAB_ACCESS_TOKEN`) for API authentication. Would be valuable to support OAuth flow for:
