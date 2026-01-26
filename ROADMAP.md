@@ -42,7 +42,7 @@ Replacing the per-endpoint caching with a local budget replica:
 - Download entire budget on first access (single API call to `/budgets/{id}`)
 - Use YNAB's delta sync (`last_knowledge_of_server`) for efficient incremental updates
 - Persist every sync to `~/.config/ynab-mcp-deluxe/sync-history/` (automatic incremental backups)
-- Rename `force_refresh` → `force_sync` with support for `'full' | 'delta'`
+- ✅ Renamed `force_refresh` → `force_sync`
 - Remove auto-backup (sync history provides continuous backups)
 
 ## Future Enhancements

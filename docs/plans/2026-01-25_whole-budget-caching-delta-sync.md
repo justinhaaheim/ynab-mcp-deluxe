@@ -657,8 +657,9 @@ See ROADMAP.md for tracking.
 
 - [x] Update existing tests (mocks updated for full budget endpoint)
 - [x] All 48 existing tests pass
+- [x] **Add delta merge tests** - 34 tests in `local-budget.test.ts` (2026-01-26)
+- [x] **Add drift detection tests** - 41 tests in `drift-detection.test.ts` (2026-01-26)
 - [ ] Add sync policy tests (future enhancement)
-- [ ] Add delta merge tests (future enhancement)
 - [ ] Add performance timing tests (future enhancement)
 
 ### Implementation Status: ✅ Core Implementation Complete (2026-01-26)
@@ -699,9 +700,11 @@ Key assumptions that need real-world validation:
 | 🔴 Real API validation                   | Not done              | CRITICAL |
 | ✅ Drift detection                       | **IMPLEMENTED**       | HIGH     |
 | ✅ `YNAB_ALWAYS_FULL_SYNC` mode          | **IMPLEMENTED**       | HIGH     |
-| 🟡 Rename `force_refresh` → `force_sync` | Kept old name for now | MEDIUM   |
+| ✅ Rename `force_refresh` → `force_sync` | **IMPLEMENTED**       | MEDIUM   |
+| ✅ Unit tests for merge/drift logic      | **75 tests added**    | MEDIUM   |
+| ✅ Security docs & clear_sync_history    | **IMPLEMENTED**       | MEDIUM   |
 | 🟡 Performance timing logs               | Partially implemented | LOW      |
-| 🟢 Static JSON testing                   | Stub exists           | Future   |
+| 🟢 Static JSON testing                   | Plan created          | Future   |
 
 ### Must-Have Before Production
 
@@ -934,6 +937,170 @@ If we need to address this:
 
 ---
 
+---
+
+## 🟢 Phase 10: Static JSON Testing
+
+### Goal
+
+Replace the real YNAB API with a static JSON file for testing purposes. This enables:
+
+1. **Deterministic testing** - Same data every time, no network dependency
+2. **Offline development** - Work without YNAB API access
+3. **Large budget simulation** - Test with realistic 20-50MB budgets
+4. **Edge case testing** - Craft specific scenarios (deletions, splits, etc.)
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      SyncProvider                            │
+├─────────────────────────────────────────────────────────────┤
+│  ApiSyncProvider       │  StaticJsonSyncProvider            │
+│  (production)          │  (testing)                          │
+├────────────────────────┼────────────────────────────────────┤
+│  fullSync() → API      │  fullSync() → Read JSON file       │
+│  deltaSync() → API     │  deltaSync() → Read JSON + filter  │
+└────────────────────────┴────────────────────────────────────┘
+```
+
+### Environment Configuration
+
+```bash
+# Path to static budget JSON file
+YNAB_STATIC_BUDGET_FILE=/path/to/test-budget.json
+
+# When set, uses StaticJsonSyncProvider instead of ApiSyncProvider
+# Implies read-only mode (writes will fail with clear error)
+```
+
+### Static JSON File Format
+
+The file should match the response from `GET /budgets/{id}`:
+
+```json
+{
+  "server_knowledge": 12345,
+  "budget": {
+    "id": "test-budget-id",
+    "name": "Test Budget",
+    "accounts": [...],
+    "categories": [...],
+    "category_groups": [...],
+    "payees": [...],
+    "payee_locations": [...],
+    "months": [...],
+    "transactions": [...],
+    "subtransactions": [...],
+    "scheduled_transactions": [...],
+    "scheduled_subtransactions": [...],
+    "currency_format": {...}
+  }
+}
+```
+
+### StaticJsonSyncProvider Implementation
+
+```typescript
+// src/sync-providers.ts
+
+export class StaticJsonSyncProvider implements SyncProvider {
+  private budgetData: BudgetDetail | null = null;
+  private serverKnowledge: number = 0;
+
+  constructor(private filePath: string) {}
+
+  private async loadBudget(): Promise<void> {
+    if (this.budgetData !== null) return;
+
+    const content = await readFile(this.filePath, 'utf-8');
+    const parsed = JSON.parse(content);
+    this.budgetData = parsed.budget;
+    this.serverKnowledge = parsed.server_knowledge;
+  }
+
+  async fullSync(budgetId: string): Promise<SyncResult> {
+    await this.loadBudget();
+    return {
+      budget: this.budgetData!,
+      serverKnowledge: this.serverKnowledge,
+    };
+  }
+
+  async deltaSync(
+    budgetId: string,
+    lastKnowledge: number,
+  ): Promise<SyncResult> {
+    // For static testing, delta sync returns empty changes
+    // (same as full sync would if nothing changed)
+    await this.loadBudget();
+
+    // Return empty arrays for all entity types (no changes)
+    return {
+      budget: {
+        ...this.budgetData!,
+        accounts: [],
+        categories: [],
+        category_groups: [],
+        payees: [],
+        payee_locations: [],
+        months: [],
+        transactions: [],
+        subtransactions: [],
+        scheduled_transactions: [],
+        scheduled_subtransactions: [],
+      },
+      serverKnowledge: this.serverKnowledge,
+    };
+  }
+}
+```
+
+### Write Operation Handling
+
+When using static JSON mode, write operations should fail clearly:
+
+```typescript
+// In server.ts or ynab-client.ts
+
+function ensureNotStaticMode(operation: string): void {
+  if (isStaticJsonMode()) {
+    throw new Error(
+      `Cannot ${operation} in static JSON mode. ` +
+        `Remove YNAB_STATIC_BUDGET_FILE to use real API.`,
+    );
+  }
+}
+```
+
+### Test Data Generation
+
+Options for creating test JSON files:
+
+1. **Export from real budget**: Use `backup_budget` tool, then sanitize
+2. **Generate synthetic data**: Script to create realistic test budgets
+3. **Use existing mock data**: Adapt `src/mocks/handlers.ts` data
+
+### Phase 10 Checklist
+
+- [ ] Add `YNAB_STATIC_BUDGET_FILE` env var handling
+- [ ] Implement `StaticJsonSyncProvider` in `sync-providers.ts`
+- [ ] Add `isStaticJsonMode()` helper function
+- [ ] Update `getSyncProvider()` to return static provider when configured
+- [ ] Block write operations in static mode with clear error
+- [ ] Add tests for `StaticJsonSyncProvider`
+- [ ] Create sample test JSON file in `data/example/`
+- [ ] Document in README
+
+### Benefits for Development
+
+1. **No rate limit concerns** - Test freely without hitting YNAB's 200/hour limit
+2. **Consistent test data** - Same budget state across test runs
+3. **CI/CD friendly** - No secrets needed for testing
+4. **Edge case crafting** - Create budgets with specific scenarios
+
+---
+
 ## Progress Log
 
 - 2026-01-25: Initial plan created
@@ -941,4 +1108,7 @@ If we need to address this:
 - 2026-01-26: Finalized implementation plan after discussion
 - 2026-01-26: Core implementation complete (Phases 1-8)
 - 2026-01-26: Post-implementation analysis - identified need for drift detection
-- 2026-01-26: Phase 9 (Drift Detection) planned - NEXT PRIORITY
+- 2026-01-26: Phase 9 (Drift Detection) implemented
+- 2026-01-26: Added 75 unit tests (34 local-budget, 41 drift-detection)
+- 2026-01-26: Added security docs to README, clear_sync_history tool
+- 2026-01-26: Phase 10 (Static JSON Testing) planned

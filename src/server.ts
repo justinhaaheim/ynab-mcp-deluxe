@@ -41,7 +41,7 @@ import {isReadOnlyMode, ynabClient} from './ynab-client.js';
 const server = new FastMCP({
   instructions: `MCP server for YNAB budget management.
 
-Caching: Data (accounts, categories, payees) is cached to minimize API calls and respect YNAB's rate limit (200 requests/hour). Cache is automatically invalidated after write operations. Use force_refresh: true on any read tool to manually invalidate the cache and fetch fresh data.`,
+Caching: Data (accounts, categories, payees) is cached to minimize API calls and respect YNAB's rate limit (200 requests/hour). Cache is automatically invalidated after write operations. Use force_sync: true on any read tool to manually invalidate the cache and fetch fresh data.`,
   name: 'YNAB MCP Server',
   version: '1.0.0',
 });
@@ -66,19 +66,19 @@ const AccountSelectorSchema = z
   .optional()
   .describe('Filter to specific account');
 
-const ForceRefreshSchema = z
+const ForceSyncSchema = z
   .boolean()
   .default(false)
   .optional()
   .describe('Invalidate cache and fetch fresh data from YNAB API');
 
 // ============================================================================
-// Helper: Handle force_refresh and resolve budget
+// Helper: Handle force_sync and resolve budget
 // ============================================================================
 
-interface ForceRefreshArgs {
+interface ForceSyncArgs {
   budget?: BudgetSelector;
-  force_refresh?: boolean;
+  force_sync?: boolean;
 }
 
 interface ToolLog {
@@ -87,13 +87,13 @@ interface ToolLog {
 }
 
 /**
- * Validates budget selector, resolves budget ID, and handles force_refresh.
- * Call this at the start of read tools that support force_refresh.
+ * Validates budget selector, resolves budget ID, and handles force_sync.
+ * Call this at the start of read tools that support force_sync.
  *
  * @returns The resolved budget ID
  */
 async function prepareBudgetRequest(
-  args: ForceRefreshArgs,
+  args: ForceSyncArgs,
   log: ToolLog,
 ): Promise<string> {
   validateSelector(args.budget, 'Budget');
@@ -101,8 +101,8 @@ async function prepareBudgetRequest(
   const budgetId = await ynabClient.resolveBudgetId(args.budget);
   log.debug('Resolved budget', {budgetId});
 
-  if (args.force_refresh === true) {
-    log.info('Force refresh requested, invalidating cache', {budgetId});
+  if (args.force_sync === true) {
+    log.info('Force sync requested, invalidating cache', {budgetId});
     ynabClient.invalidateCache(budgetId);
   }
 
@@ -309,7 +309,7 @@ Just IDs and payees (minimal projection):
   parameters: z.object({
     account: AccountSelectorSchema,
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     limit: z
       .number()
       .int()
@@ -442,7 +442,7 @@ Amazon transactions (limited):
   name: 'get_payee_history',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     limit: z
       .number()
       .int()
@@ -540,7 +540,7 @@ Array of category groups, each containing:
   name: 'get_categories',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     include_hidden: z
       .boolean()
       .default(false)
@@ -608,7 +608,7 @@ Just checking accounts:
   name: 'get_accounts',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     include_closed: z
       .boolean()
       .default(false)
@@ -862,7 +862,7 @@ Search for a payee:
   name: 'get_payees',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     query: z.string().optional().describe('Optional JMESPath expression'),
   }),
 });
@@ -921,7 +921,7 @@ Monthly bills only:
   name: 'get_scheduled_transactions',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     query: z.string().optional().describe('Optional JMESPath expression'),
   }),
 });
@@ -977,7 +977,7 @@ Recent months with positive income:
   name: 'get_months',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     query: z.string().optional().describe('Optional JMESPath expression'),
   }),
 });
@@ -1064,7 +1064,7 @@ Categories with goals:
   name: 'get_budget_summary',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     include_hidden: z
       .boolean()
       .default(false)

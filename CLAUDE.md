@@ -100,7 +100,7 @@ YNAB has a 200 requests/hour rate limit. The caching strategy is critical:
 - **Per-budget cache**: Accounts, categories, payees, and currency format are cached together
 - **Lazy-loaded**: Cache is populated on first access to each budget (4 parallel API calls)
 - **Auto-invalidation**: Cache is cleared after any write operation
-- **Manual refresh**: Pass `force_refresh: true` to any read tool to bypass cache
+- **Manual refresh**: Pass `force_sync: true` to any read tool to bypass cache
 - **Session-based**: Cache lives only for server lifetime (in-memory)
 
 ### Lookup Maps
