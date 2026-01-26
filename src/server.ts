@@ -17,7 +17,6 @@ import type {
   PayeeSelector,
   TransactionSortBy,
   TransactionUpdate,
-  UpdateSubTransactionInput,
   UpdateTransactionsResult,
 } from './types.js';
 
@@ -25,7 +24,7 @@ import {FastMCP, type SerializableValue} from 'fastmcp';
 import {AccountType} from 'ynab';
 import {z} from 'zod';
 
-import {backupBudget, performAutoBackupIfNeeded} from './backup.js';
+import {backupBudget} from './backup.js';
 import {
   applyJMESPath,
   calculateCategoryDistribution,
@@ -228,9 +227,6 @@ Just IDs and payees (minimal projection):
       const budgetId = await prepareBudgetRequest(args, log);
       validateSelector(args.account as AccountSelector | undefined, 'Account');
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       // Resolve account ID if provided
       let accountId: string | undefined;
       const hasAccountName =
@@ -402,9 +398,6 @@ Amazon transactions (limited):
     try {
       const budgetId = await prepareBudgetRequest(args, log);
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       // Get all transactions (we need categorized ones to learn patterns)
       let transactions = await ynabClient.getTransactions(budgetId, {});
       log.debug('Fetched all transactions', {count: transactions.length});
@@ -510,9 +503,6 @@ Array of category groups, each containing:
     try {
       const budgetId = await prepareBudgetRequest(args, log);
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       const includeHidden = args.include_hidden ?? false;
 
       const {groups} = await ynabClient.getCategories(budgetId, includeHidden);
@@ -596,9 +586,6 @@ Just checking accounts:
 
     try {
       const budgetId = await prepareBudgetRequest(args, log);
-
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
 
       const includeClosed = args.include_closed ?? false;
 
@@ -722,9 +709,6 @@ Returns updated transactions and any failures with error messages.`,
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
-
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
 
       const updates: TransactionUpdate[] = args.transactions.map((t) => ({
         account_id: t.account_id,
@@ -859,9 +843,6 @@ Search for a payee:
     try {
       const budgetId = await prepareBudgetRequest(args, log);
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       const payees = await ynabClient.getPayees(budgetId);
       log.debug('Fetched payees', {count: payees.length});
 
@@ -917,9 +898,6 @@ Monthly bills only:
 
     try {
       const budgetId = await prepareBudgetRequest(args, log);
-
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
 
       const scheduled = await ynabClient.getScheduledTransactions(budgetId);
       log.debug('Fetched scheduled transactions', {count: scheduled.length});
@@ -979,9 +957,6 @@ Recent months with positive income:
 
     try {
       const budgetId = await prepareBudgetRequest(args, log);
-
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
 
       const months = await ynabClient.getBudgetMonths(budgetId);
       log.debug('Fetched budget months', {count: months.length});
@@ -1050,9 +1025,6 @@ Categories with goals:
 
     try {
       const budgetId = await prepareBudgetRequest(args, log);
-
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
 
       // Determine month - use current if not specified
       let month = args.month;
@@ -1263,9 +1235,6 @@ Paycheck ($3000):
       );
       log.debug('Resolved budget', {budgetId});
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       // Resolve selectors for each transaction
       log.debug('Resolving selectors for transactions...');
       const inputs: CreateTransactionInput[] = await Promise.all(
@@ -1457,9 +1426,6 @@ transaction_id (required) - The ID of the transaction to delete
       );
       log.debug('Resolved budget', {budgetId});
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       log.info('Deleting transaction', {transactionId: args.transaction_id});
       const result = await ynabClient.deleteTransaction(
         budgetId,
@@ -1517,9 +1483,6 @@ budget - Which budget (uses default if omitted)
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
-
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
 
       log.info('Importing transactions from linked accounts...');
       const result = await ynabClient.importTransactions(budgetId);
@@ -1602,9 +1565,6 @@ Fund emergency fund with $1000:
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
-
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
 
       // Resolve category
       const categoryId = await ynabClient.resolveCategoryId(
@@ -1717,9 +1677,6 @@ Create a savings account with $0:
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
-
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
 
       log.info('Creating account', {
         balance: args.balance,

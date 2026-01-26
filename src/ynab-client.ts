@@ -17,24 +17,30 @@ import type {
   EnrichedScheduledTransaction,
   EnrichedSubTransaction,
   EnrichedTransaction,
+  GetLocalBudgetOptions,
+  LocalBudget,
   PayeeSelector,
+  SyncProvider,
+  SyncType,
   TransactionUpdate,
 } from './types.js';
 
 import {
-  type Account,
   type AccountType,
   api as YnabApi,
   type BudgetSummary,
   type Category,
   type CategoryGroupWithCategories,
   type CurrencyFormat,
-  type Payee,
   TransactionClearedStatus,
   type TransactionDetail,
   type TransactionFlagColor,
   utils,
 } from 'ynab';
+
+import {buildLocalBudget, detectDrift, mergeDelta} from './local-budget.js';
+import {persistSyncResponse} from './sync-history.js';
+import {ApiSyncProvider} from './sync-providers.js';
 
 // ============================================================================
 // Read-Only Mode Support
@@ -61,30 +67,73 @@ export function assertWriteAllowed(operation: string): void {
   }
 }
 
+// ============================================================================
+// Sync Configuration
+// ============================================================================
+
 /**
- * Cached data for a budget
+ * Default sync interval in seconds (10 minutes)
  */
-interface BudgetCache {
-  accountById: Map<string, Account>;
-  accountByName: Map<string, Account>;
-  accounts: Account[];
-  categories: Category[];
-  categoryById: Map<string, Category>;
-  categoryGroupNameById: Map<string, string>;
-  categoryGroups: CategoryGroupWithCategories[];
-  currencyFormat: CurrencyFormat | null;
-  payeeById: Map<string, Payee>;
-  payees: Payee[];
+const DEFAULT_SYNC_INTERVAL_SECONDS = 600;
+
+/**
+ * Get the configured sync interval in milliseconds.
+ * Configured via YNAB_SYNC_INTERVAL_SECONDS environment variable.
+ * Default: 600 seconds (10 minutes)
+ * Set to 0 to always sync before every operation.
+ */
+export function getSyncIntervalMs(): number {
+  const value = process.env['YNAB_SYNC_INTERVAL_SECONDS'];
+  if (value === undefined || value === '') {
+    return DEFAULT_SYNC_INTERVAL_SECONDS * 1000;
+  }
+
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed < 0) {
+    // Invalid value, use default
+    return DEFAULT_SYNC_INTERVAL_SECONDS * 1000;
+  }
+
+  return parsed * 1000;
 }
 
 /**
- * YNAB client with caching
+ * Logger interface matching FastMCP's context log
+ */
+interface ContextLog {
+  debug: (message: string, data?: unknown) => void;
+  error: (message: string, data?: unknown) => void;
+  info: (message: string, data?: unknown) => void;
+  warn: (message: string, data?: unknown) => void;
+}
+
+/**
+ * No-op logger for operations that don't have a context
+ */
+const noopLog: ContextLog = {
+  debug: () => {
+    /* noop */
+  },
+  error: () => {
+    /* noop */
+  },
+  info: () => {
+    /* noop */
+  },
+  warn: () => {
+    /* noop */
+  },
+};
+
+/**
+ * YNAB client with local budget sync
  */
 class YnabClient {
   private api: YnabApi | null = null;
   private budgets: BudgetSummary[] | null = null;
-  private budgetCaches = new Map<string, BudgetCache>();
+  private localBudgets = new Map<string, LocalBudget>();
   private lastUsedBudgetId: string | null = null;
+  private syncProvider: SyncProvider | null = null;
 
   /**
    * Get the YNAB API instance, creating it if necessary
@@ -100,6 +149,202 @@ class YnabClient {
       this.api = new YnabApi(token);
     }
     return this.api;
+  }
+
+  /**
+   * Get the sync provider, creating it if necessary
+   */
+  private getSyncProvider(): SyncProvider {
+    if (this.syncProvider === null) {
+      const token = process.env['YNAB_ACCESS_TOKEN'];
+      if (token === undefined || token === '') {
+        throw new Error(
+          'YNAB authentication failed. Check that YNAB_ACCESS_TOKEN environment variable is set.',
+        );
+      }
+      this.syncProvider = new ApiSyncProvider(token);
+    }
+    return this.syncProvider;
+  }
+
+  /**
+   * Determine what kind of sync is needed based on policy.
+   */
+  private determineSyncNeeded(
+    localBudget: LocalBudget | undefined,
+    options: GetLocalBudgetOptions,
+  ): SyncType | 'none' {
+    // Force full sync requested
+    if (options.forceSync === 'full') return 'full';
+
+    // No local budget yet - need initial full sync
+    if (localBudget === undefined) return 'full';
+
+    // Force delta sync requested
+    if (options.forceSync === 'delta') return 'delta';
+
+    // Write happened - need to sync
+    if (localBudget.needsSync) return 'delta';
+
+    // Check interval
+    const elapsed = Date.now() - localBudget.lastSyncedAt.getTime();
+    const intervalMs = getSyncIntervalMs();
+    if (elapsed >= intervalMs) return 'delta';
+
+    // Local budget is fresh enough
+    return 'none';
+  }
+
+  /**
+   * Get a local budget, syncing with YNAB if needed.
+   *
+   * This is the core method that manages the local budget replica.
+   * It syncs based on the sync policy (interval, needsSync flag, forceSync option).
+   *
+   * @param budgetId - The budget ID
+   * @param options - Sync options (forceSync: 'full' | 'delta' | undefined)
+   * @param log - Logger for debug output
+   * @returns The LocalBudget
+   */
+  async getLocalBudgetWithSync(
+    budgetId: string,
+    options: GetLocalBudgetOptions = {},
+    log: ContextLog = noopLog,
+  ): Promise<LocalBudget> {
+    const existingBudget = this.localBudgets.get(budgetId);
+    const syncNeeded = this.determineSyncNeeded(existingBudget, options);
+
+    if (syncNeeded === 'none' && existingBudget !== undefined) {
+      log.debug('Local budget is fresh, skipping sync', {
+        budgetId,
+        lastSyncedAt: existingBudget.lastSyncedAt.toISOString(),
+        serverKnowledge: existingBudget.serverKnowledge,
+      });
+      return existingBudget;
+    }
+
+    const syncProvider = this.getSyncProvider();
+    const totalStartTime = performance.now();
+
+    if (syncNeeded === 'full' || existingBudget === undefined) {
+      // Full sync
+      log.info('Performing full sync...', {budgetId});
+
+      const apiStartTime = performance.now();
+      const {budget, serverKnowledge} = await syncProvider.fullSync(budgetId);
+      const apiDurationMs = Math.round(performance.now() - apiStartTime);
+
+      const mergeStartTime = performance.now();
+      const localBudget = buildLocalBudget(budgetId, budget, serverKnowledge);
+      const mergeDurationMs = Math.round(performance.now() - mergeStartTime);
+
+      // Persist to sync history
+      const persistStartTime = performance.now();
+      await persistSyncResponse(
+        budgetId,
+        'full',
+        budget,
+        serverKnowledge,
+        null,
+        log,
+      );
+      const persistDurationMs = Math.round(
+        performance.now() - persistStartTime,
+      );
+
+      const totalDurationMs = Math.round(performance.now() - totalStartTime);
+
+      log.info('Full sync completed', {
+        apiDurationMs,
+        budgetId,
+        counts: {
+          accounts: localBudget.accounts.length,
+          categories: localBudget.categories.length,
+          payees: localBudget.payees.length,
+          transactions: localBudget.transactions.length,
+        },
+        mergeDurationMs,
+        persistDurationMs,
+        serverKnowledge,
+        totalDurationMs,
+      });
+
+      this.localBudgets.set(budgetId, localBudget);
+      return localBudget;
+    }
+
+    // Delta sync
+    log.info('Performing delta sync...', {
+      budgetId,
+      previousServerKnowledge: existingBudget.serverKnowledge,
+    });
+
+    const previousServerKnowledge = existingBudget.serverKnowledge;
+
+    const apiStartTime = performance.now();
+    const {budget: deltaBudget, serverKnowledge: newServerKnowledge} =
+      await syncProvider.deltaSync(budgetId, previousServerKnowledge);
+    const apiDurationMs = Math.round(performance.now() - apiStartTime);
+
+    const mergeStartTime = performance.now();
+    const {localBudget, changesReceived} = mergeDelta(
+      existingBudget,
+      deltaBudget,
+      newServerKnowledge,
+    );
+    const mergeDurationMs = Math.round(performance.now() - mergeStartTime);
+
+    // Persist to sync history
+    const persistStartTime = performance.now();
+    await persistSyncResponse(
+      budgetId,
+      'delta',
+      deltaBudget,
+      newServerKnowledge,
+      previousServerKnowledge,
+      log,
+    );
+    const persistDurationMs = Math.round(performance.now() - persistStartTime);
+
+    const totalDurationMs = Math.round(performance.now() - totalStartTime);
+
+    log.info('Delta sync completed', {
+      apiDurationMs,
+      budgetId,
+      changesReceived,
+      mergeDurationMs,
+      persistDurationMs,
+      serverKnowledge: {
+        new: newServerKnowledge,
+        previous: previousServerKnowledge,
+      },
+      totalDurationMs,
+    });
+
+    // If this was a forced full sync after delta syncs, check for drift
+    if (options.forceSync === 'full' && existingBudget !== undefined) {
+      const drift = detectDrift(existingBudget, localBudget);
+      if (drift.length > 0) {
+        log.warn('Budget drift detected during full sync sanity check', {
+          budgetId,
+          discrepancies: drift,
+        });
+      }
+    }
+
+    this.localBudgets.set(budgetId, localBudget);
+    return localBudget;
+  }
+
+  /**
+   * Mark a budget as needing sync (called after write operations).
+   * The next read operation will trigger a delta sync.
+   */
+  markNeedsSync(budgetId: string): void {
+    const localBudget = this.localBudgets.get(budgetId);
+    if (localBudget !== undefined) {
+      localBudget.needsSync = true;
+    }
   }
 
   /**
@@ -256,73 +501,38 @@ class YnabClient {
   }
 
   /**
-   * Get or create the cache for a budget
+   * Get the local budget for internal use.
+   * This is a convenience wrapper around getLocalBudgetWithSync() for methods
+   * that don't have access to a logger context.
    */
-  private async getBudgetCache(budgetId: string): Promise<BudgetCache> {
-    const existingCache = this.budgetCaches.get(budgetId);
-    if (existingCache !== undefined) {
-      return existingCache;
-    }
+  private async getLocalBudget(budgetId: string): Promise<LocalBudget> {
+    return await this.getLocalBudgetWithSync(budgetId, {}, noopLog);
+  }
 
-    // Fetch all necessary data in parallel
-    const api = this.getApi();
-    const [
-      accountsResponse,
-      categoriesResponse,
-      payeesResponse,
-      budgetResponse,
-    ] = await Promise.all([
-      api.accounts.getAccounts(budgetId),
-      api.categories.getCategories(budgetId),
-      api.payees.getPayees(budgetId),
-      api.budgets.getBudgetById(budgetId),
-    ]);
-
-    const accounts = accountsResponse.data.accounts;
-    const categoryGroups = categoriesResponse.data.category_groups;
-    const payees = payeesResponse.data.payees;
-    const currencyFormat = budgetResponse.data.budget.currency_format ?? null;
-
-    // Build lookup maps
-    const accountById = new Map<string, Account>();
-    const accountByName = new Map<string, Account>();
-    for (const account of accounts) {
-      accountById.set(account.id, account);
-      accountByName.set(account.name.toLowerCase(), account);
-    }
-
-    const categoryById = new Map<string, Category>();
-    const categoryGroupNameById = new Map<string, string>();
-    const categories: Category[] = [];
-
-    for (const group of categoryGroups) {
-      categoryGroupNameById.set(group.id, group.name);
-      for (const category of group.categories) {
-        categoryById.set(category.id, category);
-        categories.push(category);
+  /**
+   * Build CategoryGroupWithCategories array from LocalBudget data.
+   * The full budget endpoint returns categories and groups separately,
+   * so we need to join them for compatibility with some existing methods.
+   */
+  private buildCategoryGroupsWithCategories(
+    localBudget: LocalBudget,
+  ): CategoryGroupWithCategories[] {
+    // Group categories by their category_group_id
+    const categoriesByGroupId = new Map<string, Category[]>();
+    for (const category of localBudget.categories) {
+      const existing = categoriesByGroupId.get(category.category_group_id);
+      if (existing !== undefined) {
+        existing.push(category);
+      } else {
+        categoriesByGroupId.set(category.category_group_id, [category]);
       }
     }
 
-    const payeeById = new Map<string, Payee>();
-    for (const payee of payees) {
-      payeeById.set(payee.id, payee);
-    }
-
-    const cache: BudgetCache = {
-      accountById,
-      accountByName,
-      accounts,
-      categories,
-      categoryById,
-      categoryGroupNameById,
-      categoryGroups,
-      currencyFormat,
-      payeeById,
-      payees,
-    };
-
-    this.budgetCaches.set(budgetId, cache);
-    return cache;
+    // Build CategoryGroupWithCategories array
+    return localBudget.categoryGroups.map((group) => ({
+      ...group,
+      categories: categoriesByGroupId.get(group.id) ?? [],
+    }));
   }
 
   /**
@@ -341,15 +551,16 @@ class YnabClient {
    */
   private enrichTransaction(
     tx: TransactionDetail,
-    cache: BudgetCache,
+    localBudget: LocalBudget,
   ): EnrichedTransaction {
     // Get category group name
     let categoryGroupName: string | null = null;
     if (tx.category_id !== undefined && tx.category_id !== null) {
-      const category = cache.categoryById.get(tx.category_id);
+      const category = localBudget.categoryById.get(tx.category_id);
       if (category !== undefined) {
         categoryGroupName =
-          cache.categoryGroupNameById.get(category.category_group_id) ?? null;
+          localBudget.categoryGroupNameById.get(category.category_group_id) ??
+          null;
       }
     }
 
@@ -358,17 +569,21 @@ class YnabClient {
       tx.subtransactions.map((sub) => {
         let subCategoryGroupName: string | null = null;
         if (sub.category_id !== undefined && sub.category_id !== null) {
-          const category = cache.categoryById.get(sub.category_id);
+          const category = localBudget.categoryById.get(sub.category_id);
           if (category !== undefined) {
             subCategoryGroupName =
-              cache.categoryGroupNameById.get(category.category_group_id) ??
-              null;
+              localBudget.categoryGroupNameById.get(
+                category.category_group_id,
+              ) ?? null;
           }
         }
 
         return {
           amount: sub.amount,
-          amount_currency: this.toCurrency(sub.amount, cache.currencyFormat),
+          amount_currency: this.toCurrency(
+            sub.amount,
+            localBudget.currencyFormat,
+          ),
           category_group_name: subCategoryGroupName,
           category_id: sub.category_id ?? null,
           category_name: sub.category_name ?? null,
@@ -385,7 +600,7 @@ class YnabClient {
       account_id: tx.account_id,
       account_name: tx.account_name,
       amount: tx.amount,
-      amount_currency: this.toCurrency(tx.amount, cache.currencyFormat),
+      amount_currency: this.toCurrency(tx.amount, localBudget.currencyFormat),
       approved: tx.approved,
       category_group_name: categoryGroupName,
       category_id: tx.category_id ?? null,
@@ -416,7 +631,7 @@ class YnabClient {
       type?: 'uncategorized' | 'unapproved';
     } = {},
   ): Promise<EnrichedTransaction[]> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
     const api = this.getApi();
 
     let transactions: TransactionDetail[];
@@ -453,7 +668,7 @@ class YnabClient {
     budgetId: string,
     selector: AccountSelector,
   ): Promise<string> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     // Validate selector has exactly one of name or id
     const selectorHasName = selector.name !== undefined && selector.name !== '';
@@ -505,7 +720,7 @@ class YnabClient {
     budgetId: string,
     includeClosed = false,
   ): Promise<EnrichedAccount[]> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     return cache.accounts
       .filter((a) => !a.deleted && (includeClosed || !a.closed))
@@ -542,7 +757,7 @@ class YnabClient {
     flat: EnrichedCategory[];
     groups: CategoryGroupWithCategories[];
   }> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     const flat: EnrichedCategory[] = cache.categories
       .filter((c) => !c.deleted && (includeHidden || !c.hidden))
@@ -559,14 +774,14 @@ class YnabClient {
         name: c.name,
       }));
 
-    return {flat, groups: cache.categoryGroups};
+    return {flat, groups: this.buildCategoryGroupsWithCategories(cache)};
   }
 
   /**
    * Get all payees for a budget
    */
   async getPayees(budgetId: string): Promise<EnrichedPayee[]> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     return cache.payees
       .filter((p) => !p.deleted)
@@ -642,8 +857,8 @@ class YnabClient {
 
     // Always invalidate cache after write operations to ensure consistency
     // (payees may be created, and we want fresh data for enrichment)
-    this.budgetCaches.delete(budgetId);
-    const freshCache = await this.getBudgetCache(budgetId);
+    this.markNeedsSync(budgetId);
+    const freshCache = await this.getLocalBudget(budgetId);
     const enriched = updatedTxs.map((tx) =>
       this.enrichTransaction(tx, freshCache),
     );
@@ -657,7 +872,7 @@ class YnabClient {
    * Get currency format for a budget
    */
   async getCurrencyFormat(budgetId: string): Promise<CurrencyFormat | null> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
     return cache.currencyFormat;
   }
 
@@ -697,7 +912,7 @@ class YnabClient {
     budgetId: string,
     selector: CategorySelector,
   ): Promise<string> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     const selectorHasName = selector.name !== undefined && selector.name !== '';
     const selectorHasId = selector.id !== undefined && selector.id !== '';
@@ -752,7 +967,7 @@ class YnabClient {
     budgetId: string,
     selector: PayeeSelector,
   ): Promise<string | null> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     const selectorHasName = selector.name !== undefined && selector.name !== '';
     const selectorHasId = selector.id !== undefined && selector.id !== '';
@@ -791,7 +1006,7 @@ class YnabClient {
     budgetId: string,
     transactionId: string,
   ): Promise<EnrichedTransaction> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
     const api = this.getApi();
 
     const response = await api.transactions.getTransactionById(
@@ -808,7 +1023,7 @@ class YnabClient {
   async getScheduledTransactions(
     budgetId: string,
   ): Promise<EnrichedScheduledTransaction[]> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
     const api = this.getApi();
 
     const response =
@@ -853,7 +1068,7 @@ class YnabClient {
    * Get budget months list
    */
   async getBudgetMonths(budgetId: string): Promise<EnrichedMonthSummary[]> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
     const api = this.getApi();
 
     const response = await api.months.getBudgetMonths(budgetId);
@@ -883,7 +1098,7 @@ class YnabClient {
     budgetId: string,
     month: string,
   ): Promise<EnrichedBudgetMonthDetail> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
     const api = this.getApi();
 
     const response = await api.months.getBudgetMonth(budgetId, month);
@@ -976,12 +1191,12 @@ class YnabClient {
     });
 
     // Invalidate cache since payees may have been created
-    this.budgetCaches.delete(budgetId);
+    this.markNeedsSync(budgetId);
 
     const createdTransactions = response.data.transactions ?? [];
     const duplicateImportIds = response.data.duplicate_import_ids ?? [];
 
-    const newCache = await this.getBudgetCache(budgetId);
+    const newCache = await this.getLocalBudget(budgetId);
     const enriched = createdTransactions.map((t) =>
       this.enrichTransaction(t, newCache),
     );
@@ -1001,7 +1216,7 @@ class YnabClient {
   ): Promise<{deleted: EnrichedTransaction}> {
     assertWriteAllowed('delete_transaction');
 
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
     const api = this.getApi();
 
     const response = await api.transactions.deleteTransaction(
@@ -1027,7 +1242,7 @@ class YnabClient {
     const response = await api.transactions.importTransactions(budgetId);
 
     // Invalidate cache since import may create new payees
-    this.budgetCaches.delete(budgetId);
+    this.markNeedsSync(budgetId);
 
     return {
       imported_count: response.data.transaction_ids.length,
@@ -1057,10 +1272,10 @@ class YnabClient {
     });
 
     // Invalidate cache since we've added a new account
-    this.budgetCaches.delete(budgetId);
+    this.markNeedsSync(budgetId);
 
     const account = response.data.account;
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     return {
       balance: account.balance,
@@ -1096,7 +1311,7 @@ class YnabClient {
   ): Promise<EnrichedMonthCategory> {
     assertWriteAllowed('update_category_budget');
 
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
     const api = this.getApi();
 
     const response = await api.categories.updateMonthCategory(
@@ -1132,22 +1347,26 @@ class YnabClient {
   }
 
   /**
-   * Clear all caches (useful for testing or refreshing data)
+   * Clear all local budgets (useful for testing or forcing full re-sync)
    */
-  clearCaches(): void {
+  clearLocalBudgets(): void {
     this.budgets = null;
-    this.budgetCaches.clear();
+    this.localBudgets.clear();
   }
 
   /**
-   * Invalidate cache for a specific budget, forcing fresh data on next access.
-   * If no budgetId provided, invalidates all budget caches.
+   * Force sync for a specific budget or all budgets.
+   * If budgetId provided, marks that budget as needing sync.
+   * If no budgetId provided, clears all local budgets (forcing full re-sync on next access).
+   *
+   * @deprecated Use markNeedsSync() for individual budgets. This method
+   * is kept for backwards compatibility but will be removed in a future version.
    */
   invalidateCache(budgetId?: string): void {
     if (budgetId !== undefined) {
-      this.budgetCaches.delete(budgetId);
+      this.markNeedsSync(budgetId);
     } else {
-      this.budgetCaches.clear();
+      this.localBudgets.clear();
       this.budgets = null;
     }
   }
