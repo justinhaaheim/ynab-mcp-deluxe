@@ -1016,6 +1016,69 @@ class YnabClient {
   }
 
   /**
+   * Create a new account
+   */
+  async createAccount(
+    budgetId: string,
+    name: string,
+    type: string,
+    balance: number,
+  ): Promise<EnrichedAccount> {
+    assertWriteAllowed('create_account');
+
+    const api = this.getApi();
+
+    const response = await api.accounts.createAccount(budgetId, {
+      account: {
+        balance,
+        name,
+        type: type as
+          | 'checking'
+          | 'savings'
+          | 'cash'
+          | 'creditCard'
+          | 'lineOfCredit'
+          | 'otherAsset'
+          | 'otherLiability'
+          | 'mortgage'
+          | 'autoLoan'
+          | 'studentLoan'
+          | 'personalLoan'
+          | 'medicalDebt'
+          | 'otherDebt',
+      },
+    });
+
+    // Invalidate cache since we've added a new account
+    this.budgetCaches.delete(budgetId);
+
+    const account = response.data.account;
+    const cache = await this.getBudgetCache(budgetId);
+
+    return {
+      balance: account.balance,
+      balance_currency: this.toCurrency(account.balance, cache.currencyFormat),
+      cleared_balance: account.cleared_balance,
+      cleared_balance_currency: this.toCurrency(
+        account.cleared_balance,
+        cache.currencyFormat,
+      ),
+      closed: account.closed,
+      direct_import_in_error: account.direct_import_in_error ?? false,
+      direct_import_linked: account.direct_import_linked ?? false,
+      id: account.id,
+      name: account.name,
+      on_budget: account.on_budget,
+      type: account.type,
+      uncleared_balance: account.uncleared_balance,
+      uncleared_balance_currency: this.toCurrency(
+        account.uncleared_balance,
+        cache.currencyFormat,
+      ),
+    };
+  }
+
+  /**
    * Update category budget for a month
    */
   async updateCategoryBudget(

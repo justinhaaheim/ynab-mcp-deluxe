@@ -123,6 +123,14 @@ describe('Read-Only Mode', () => {
         'Write operation "update_category_budget" blocked: Server is in read-only mode.',
       );
     });
+
+    it('createAccount throws in read-only mode', async () => {
+      await expect(
+        ynabClient.createAccount(budgetId, 'New Checking', 'checking', 100000),
+      ).rejects.toThrow(
+        'Write operation "create_account" blocked: Server is in read-only mode.',
+      );
+    });
   });
 
   describe('Write operations succeed when not in read-only mode', () => {
@@ -193,6 +201,44 @@ describe('Read-Only Mode', () => {
       expect(result.name).toBeDefined();
       expect(typeof result.budgeted).toBe('number');
       expect(result.budgeted_currency).toBeDefined();
+    });
+
+    it('createAccount returns enriched account', async () => {
+      const result = await ynabClient.createAccount(
+        budgetId,
+        'New Checking',
+        'checking',
+        500000,
+      );
+
+      expect(result).toBeDefined();
+      expect(result.id).toBeDefined();
+      expect(typeof result.id).toBe('string');
+      expect(result.name).toBeDefined();
+      expect(typeof result.name).toBe('string');
+      expect(typeof result.balance).toBe('number');
+      expect(typeof result.balance_currency).toBe('number');
+      expect(typeof result.cleared_balance).toBe('number');
+      expect(typeof result.uncleared_balance).toBe('number');
+      expect(typeof result.on_budget).toBe('boolean');
+      expect(typeof result.closed).toBe('boolean');
+      // Verify the type is one of the valid YNAB account types
+      const validAccountTypes = [
+        'checking',
+        'savings',
+        'cash',
+        'creditCard',
+        'lineOfCredit',
+        'otherAsset',
+        'otherLiability',
+        'mortgage',
+        'autoLoan',
+        'studentLoan',
+        'personalLoan',
+        'medicalDebt',
+        'otherDebt',
+      ];
+      expect(validAccountTypes).toContain(result.type);
     });
   });
 });
