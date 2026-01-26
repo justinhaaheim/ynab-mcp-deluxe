@@ -51,6 +51,7 @@
   "dependencies": {
     "@justinhaaheim/version-manager": "github:justinhaaheim/version-manager#0.5.1",
     "@metrichor/jmespath": "^0.3.1",
+    "deep-diff": "^1.0.2",
     "fastmcp": "^1.27.3",
     "ynab": "2.10.0",
     "zod": "^3.24.4"
@@ -58,6 +59,7 @@
   "devDependencies": {
     "@faker-js/faker": "^10.2.0",
     "@tsconfig/node22": "^22.0.1",
+    "@types/deep-diff": "^1.0.5",
     "@types/node": "^25.0.9",
     "eslint": "^9.26.0",
     "eslint-config-jha-react-node": "github:justinhaaheim/eslint-config-jha-react-node",

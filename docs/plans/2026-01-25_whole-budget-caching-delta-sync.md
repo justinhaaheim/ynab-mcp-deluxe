@@ -661,7 +661,7 @@ See ROADMAP.md for tracking.
 - [ ] Add delta merge tests (future enhancement)
 - [ ] Add performance timing tests (future enhancement)
 
-### Implementation Status: ✅ COMPLETE (2026-01-26)
+### Implementation Status: ✅ Core Implementation Complete (2026-01-26)
 
 All core phases (1-8) are implemented and working:
 
@@ -673,3 +673,261 @@ All core phases (1-8) are implemented and working:
 - All lint/TypeScript checks passing
 
 Pushed to branch: `claude/budget-caching-delta-sync-syXAJ`
+
+---
+
+## 🚨 Post-Implementation Analysis (2026-01-26)
+
+### Critical Uncertainties - Need Validation
+
+**⚠️ IMPORTANT: All testing was done with MSW mocks, NOT the real YNAB API.**
+
+Key assumptions that need real-world validation:
+
+1. **Delta sync behavior**: Does `GET /budgets/{id}?last_knowledge_of_server=X` actually return only changed entities, or the full budget with a new server_knowledge?
+
+2. **Deletion handling**: When entities are deleted, does the API return them with `deleted: true`? For ALL entity types?
+
+3. **Response structure**: Does the delta response match the full budget structure, just with fewer items?
+
+4. **Merge logic correctness**: Does our `mergeEntityArray()` produce the same result as a full re-fetch?
+
+### What's Still Incomplete
+
+| Item                                     | Status                | Priority |
+| ---------------------------------------- | --------------------- | -------- |
+| 🔴 Real API validation                   | Not done              | CRITICAL |
+| 🔴 Drift detection                       | Not implemented       | HIGH     |
+| 🟡 `YNAB_ALWAYS_FULL_SYNC` mode          | Not implemented       | HIGH     |
+| 🟡 Rename `force_refresh` → `force_sync` | Kept old name for now | MEDIUM   |
+| 🟡 Performance timing logs               | Partially implemented | LOW      |
+| 🟢 Static JSON testing                   | Stub exists           | Future   |
+
+### Must-Have Before Production
+
+1. **🔴 Drift detection with self-healing** - Validates our merge logic against real API
+2. **🔴 "Always full sync" mode** - Fallback if delta sync has bugs
+3. **🟡 Real API integration testing** - Manual validation at minimum
+
+### Nice-to-Have Enhancements
+
+| Enhancement                      | Priority | Notes                                     |
+| -------------------------------- | -------- | ----------------------------------------- |
+| Sync history cleanup (old files) | Low      | Could become disk space issue             |
+| Comprehensive merge unit tests   | Medium   | Edge cases for deletions, partial updates |
+| SQLite storage for large budgets | Future   | See "Large Budget Considerations" below   |
+
+---
+
+## 🔴 Phase 9: Drift Detection (NEXT)
+
+### Goal
+
+Validate that our delta sync + merge logic produces identical results to a full budget fetch. This is the scaffolding we need to:
+
+1. Test how YNAB's delta sync actually works
+2. Verify our merge logic is correct
+3. Self-heal if drift is detected
+
+### Three Sources of Budget Data
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     YNAB API                                 │
+├─────────────────────────────────────────────────────────────┤
+│  1. Delta Query        │  2. Full Query (no server_knowledge)│
+│  (with server_knowledge)│     = Source of Truth              │
+│  Returns: changes only │     Returns: complete budget        │
+└─────────────────────────────────────────────────────────────┘
+                    │                        │
+                    ▼                        ▼
+           ┌───────────────┐        ┌───────────────┐
+           │ Local Budget  │        │ Full Budget   │
+           │ + Merge Logic │        │ (Truth)       │
+           └───────┬───────┘        └───────┬───────┘
+                   │                        │
+                   └────────┬───────────────┘
+                            ▼
+                   ┌───────────────┐
+                   │   COMPARE     │
+                   │  (deep-diff)  │
+                   └───────────────┘
+```
+
+Note: Source #3 (write operation responses) could theoretically be used to update local state, but we're NOT doing this now. Worth considering in future.
+
+### Implementation Plan
+
+#### Step 1: Add `deep-diff` dependency
+
+```bash
+bun add deep-diff
+bun add -D @types/deep-diff
+```
+
+#### Step 2: Add environment variables
+
+```typescript
+// Drift detection mode
+YNAB_DRIFT_DETECTION = true; // Default: true in DEV, false in production
+
+// Always do full sync (skip delta optimization entirely)
+YNAB_ALWAYS_FULL_SYNC = true; // Default: false
+```
+
+#### Step 3: Implement drift detection flow
+
+On every sync (when drift detection enabled):
+
+1. **Do delta query** (with `last_knowledge_of_server`)
+2. **Apply merge logic** to local budget → produces "merged budget"
+3. **Do full query** (without `last_knowledge_of_server`) → produces "truth budget"
+4. **Compare `server_knowledge` values**:
+   - If `truth.server_knowledge > merged.server_knowledge`: Log warning that external changes happened between queries
+5. **Deep compare** merged vs truth using `deep-diff`
+6. **If differences found**:
+   - Log detailed warning with diff paths
+   - **Self-heal**: Replace local budget with truth budget
+7. **If no differences**: Log success, our merge logic is working!
+
+#### Step 4: Drift detection frequency (production)
+
+For production use (after validation):
+
+- Check drift every N syncs OR every M minutes, whichever comes first
+- Configurable via env vars:
+  ```
+  YNAB_DRIFT_CHECK_INTERVAL_SYNCS=10    // Every 10th sync
+  YNAB_DRIFT_CHECK_INTERVAL_MINUTES=60  // Or every 60 minutes
+  ```
+
+#### Step 5: "Always Full Sync" mode
+
+When `YNAB_ALWAYS_FULL_SYNC=true`:
+
+- Skip delta queries entirely
+- Always fetch full budget (no `last_knowledge_of_server`)
+- Simple, guaranteed correct, just slower
+
+This is a valid production strategy if delta sync proves unreliable.
+
+### New File: `src/drift-detection.ts`
+
+```typescript
+import {diff} from 'deep-diff';
+import type {LocalBudget} from './types.js';
+
+interface DriftCheckResult {
+  hasDrift: boolean;
+  serverKnowledgeMismatch: boolean;
+  differences: Array<{
+    kind: 'N' | 'D' | 'E' | 'A'; // New, Deleted, Edited, Array
+    path: string[];
+    lhs?: unknown;
+    rhs?: unknown;
+  }>;
+}
+
+export function checkForDrift(
+  mergedBudget: LocalBudget,
+  truthBudget: LocalBudget,
+): DriftCheckResult;
+
+export function shouldCheckDrift(
+  syncCount: number,
+  lastDriftCheckAt: Date | null,
+): boolean;
+```
+
+### Logging Examples
+
+**No drift (success):**
+
+```
+✅ Drift check passed - merge logic validated
+   serverKnowledge: merged=12350, truth=12350
+   entities compared: accounts=5, categories=42, transactions=1234
+```
+
+**Server knowledge mismatch (warning):**
+
+```
+⚠️ Server knowledge mismatch during drift check
+   merged.serverKnowledge: 12350
+   truth.serverKnowledge: 12355
+   External changes likely occurred between queries.
+   Comparison may show expected differences.
+```
+
+**Drift detected (error + self-heal):**
+
+```
+🚨 DRIFT DETECTED - merge logic produced different result than full fetch
+   Differences found: 3
+
+   [1] transactions[42].amount
+       merged: -50000
+       truth:  -55000
+
+   [2] categories[5].balance
+       merged: 150000
+       truth:  145000
+
+   [3] transactions[1234] (MISSING)
+       truth has transaction not in merged budget
+
+   🔧 Self-healing: Replacing local budget with full fetch result
+```
+
+### Phase 9 Checklist
+
+- [ ] Add `deep-diff` dependency
+- [ ] Add `YNAB_DRIFT_DETECTION` env var (default: true in dev)
+- [ ] Add `YNAB_ALWAYS_FULL_SYNC` env var (default: false)
+- [ ] Create `src/drift-detection.ts` module
+- [ ] Implement `checkForDrift()` function
+- [ ] Implement `shouldCheckDrift()` for production frequency
+- [ ] Integrate into sync flow in `ynab-client.ts`
+- [ ] Add clear logging for all scenarios
+- [ ] Self-heal on drift detection
+- [ ] Test with real YNAB API
+
+---
+
+## 🟡 Large Budget Considerations (Future)
+
+### The Problem
+
+Some YNAB budgets can be 20-50MB when serialized to JSON. Keeping this entirely in memory may be problematic for:
+
+- Running multiple MCP server instances
+- Resource-constrained environments
+- Very long-running sessions
+
+### Potential Solutions
+
+| Approach                     | Pros                                  | Cons                                 |
+| ---------------------------- | ------------------------------------- | ------------------------------------ |
+| **Keep in memory** (current) | Simple, fast                          | Memory usage scales with budget size |
+| **Filesystem + jq**          | Low memory                            | Shell dependency, slower queries     |
+| **SQLite**                   | Fast queries, low memory, single file | Added complexity, schema management  |
+| **LevelDB/RocksDB**          | Very fast, key-value                  | Less query flexibility               |
+
+### Recommendation
+
+If we need to address this:
+
+1. **SQLite** is probably the best choice - battle-tested, excellent Node support (`better-sqlite3`), query capabilities match our lookup patterns
+2. This is a separate workstream - don't mix with delta sync validation
+3. Track in ROADMAP.md
+
+---
+
+## Progress Log
+
+- 2026-01-25: Initial plan created
+- 2026-01-25: Revised with local replica mental model and sync terminology
+- 2026-01-26: Finalized implementation plan after discussion
+- 2026-01-26: Core implementation complete (Phases 1-8)
+- 2026-01-26: Post-implementation analysis - identified need for drift detection
+- 2026-01-26: Phase 9 (Drift Detection) planned - NEXT PRIORITY
