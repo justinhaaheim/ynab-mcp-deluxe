@@ -1510,7 +1510,121 @@ Fund emergency fund with $1000:
 });
 
 // ============================================================================
-// Tool 15: backup_budget
+// Tool 15: create_account
+// ============================================================================
+
+const AccountTypeSchema = z.enum([
+  'checking',
+  'savings',
+  'cash',
+  'creditCard',
+  'lineOfCredit',
+  'otherAsset',
+  'otherLiability',
+  'mortgage',
+  'autoLoan',
+  'studentLoan',
+  'personalLoan',
+  'medicalDebt',
+  'otherDebt',
+]);
+
+server.addTool({
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: 'Create Account',
+  },
+  description: `Create a new account in YNAB.
+${isReadOnlyMode() ? '\n**⚠️ SERVER IS IN READ-ONLY MODE - This operation will fail**\n' : ''}
+**Parameters:**
+
+budget - Which budget (uses default if omitted)
+
+name (required) - Account name
+
+type (required) - Account type, one of:
+  - checking, savings, cash (bank accounts)
+  - creditCard, lineOfCredit (credit accounts)
+  - otherAsset, otherLiability (other accounts)
+  - mortgage, autoLoan, studentLoan, personalLoan, medicalDebt, otherDebt (loan/debt accounts)
+
+balance (required) - Opening balance in MILLIUNITS (integer)
+  - Positive for assets (e.g., 100000 = $100.00 in checking)
+  - Negative for liabilities (e.g., -250000 = $250.00 owed on credit card)
+
+**Examples:**
+
+Create a checking account with $500:
+  {"name": "My Checking", "type": "checking", "balance": 500000}
+
+Create a credit card with $1,200 balance owed:
+  {"name": "Chase Sapphire", "type": "creditCard", "balance": -1200000}
+
+Create a savings account with $0:
+  {"name": "Emergency Fund", "type": "savings", "balance": 0}`,
+  execute: async (args, {log}) => {
+    log.debug('create_account called', {
+      balance: args.balance,
+      name: args.name,
+      type: args.type,
+    });
+
+    try {
+      validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+
+      const budgetId = await ynabClient.resolveBudgetId(
+        args.budget as BudgetSelector | undefined,
+      );
+      log.debug('Resolved budget', {budgetId});
+
+      // Auto backup if needed (first access or 24+ hours since last backup)
+      await performAutoBackupIfNeeded(budgetId, log);
+
+      log.info('Creating account', {
+        balance: args.balance,
+        name: args.name,
+        type: args.type,
+      });
+      const account = await ynabClient.createAccount(
+        budgetId,
+        args.name,
+        args.type,
+        args.balance,
+      );
+      log.info('Account created', {
+        accountId: account.id,
+        accountName: account.name,
+      });
+
+      return JSON.stringify(
+        {
+          account,
+          message: `Successfully created account "${account.name}" with balance ${account.balance_currency}`,
+        },
+        null,
+        2,
+      );
+    } catch (error) {
+      return await createEnhancedErrorResponse(error, 'Create account');
+    }
+  },
+  name: 'create_account',
+  parameters: z.object({
+    balance: z
+      .number()
+      .int()
+      .describe(
+        'Opening balance in milliunits (positive for assets, negative for liabilities)',
+      ),
+    budget: BudgetSelectorSchema,
+    name: z.string().min(1).describe('Account name'),
+    type: AccountTypeSchema.describe('Account type'),
+  }),
+});
+
+// ============================================================================
+// Tool 16: backup_budget
 // ============================================================================
 
 server.addTool({

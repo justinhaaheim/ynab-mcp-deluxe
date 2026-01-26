@@ -13,6 +13,7 @@ Add the ability to create accounts via the MCP server.
 **Endpoint:** `POST /budgets/{budget_id}/accounts`
 
 **Required parameters:**
+
 - `name` (string) - Account name
 - `type` (AccountType) - One of: checking, savings, cash, creditCard, lineOfCredit, otherAsset, otherLiability, mortgage, autoLoan, studentLoan, personalLoan, medicalDebt, otherDebt
 - `balance` (integer) - Opening balance in milliunits (1000 milliunits = $1.00)
@@ -64,6 +65,7 @@ Update `src/mocks/handlers.ts` to handle `POST /budgets/:budgetId/accounts` with
 ### 4. Add tests
 
 Add tests for:
+
 - Creating account with valid parameters
 - Error handling for invalid account type
 - Cache invalidation after creation
