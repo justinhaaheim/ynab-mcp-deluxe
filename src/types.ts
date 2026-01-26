@@ -214,6 +214,12 @@ export interface TransactionUpdate {
   payee_id?: string;
   /** Set payee by name (creates new payee if not found) */
   payee_name?: string;
+  /**
+   * Subtransactions for converting a non-split transaction to a split.
+   * NOTE: YNAB API does NOT support updating subtransactions on existing split transactions.
+   * This only works when converting a non-split transaction to a split.
+   */
+  subtransactions?: SubtransactionInput[];
 }
 
 /**
@@ -326,6 +332,22 @@ export interface EnrichedMonthCategory {
 }
 
 /**
+ * Subtransaction input for creating split transactions
+ */
+export interface SubtransactionInput {
+  /** Amount in milliunits (required) */
+  amount: number;
+  /** Category ID (resolved from selector) */
+  category_id?: string;
+  /** Memo text */
+  memo?: string;
+  /** Payee ID (resolved from selector) */
+  payee_id?: string;
+  /** Payee name (used if payee_id not found, creates new payee) */
+  payee_name?: string;
+}
+
+/**
  * Create transaction input
  */
 export interface CreateTransactionInput {
@@ -339,6 +361,12 @@ export interface CreateTransactionInput {
   memo?: string;
   payee_id?: string;
   payee_name?: string;
+  /**
+   * Subtransactions for split transactions.
+   * When provided, category_id on the parent should be null.
+   * The sum of subtransaction amounts must equal the parent amount.
+   */
+  subtransactions?: SubtransactionInput[];
 }
 
 /**

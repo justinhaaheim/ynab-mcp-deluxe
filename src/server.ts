@@ -14,6 +14,7 @@ import type {
   EnrichedTransaction,
   PayeeHistoryResponse,
   PayeeSelector,
+  SubtransactionInput,
   TransactionSortBy,
   TransactionUpdate,
   UpdateTransactionsResult,
@@ -658,6 +659,15 @@ transactions (required) - Array of updates, each containing:
   - payee_id - Set payee by ID
   - payee_name - Set payee by name (creates new payee if not found)
   - cleared - "cleared", "uncleared", or "reconciled"
+  - subtransactions - Convert to split transaction (see limitations below)
+
+**Split Transactions (subtransactions):**
+
+You can convert a non-split transaction to a split by providing subtransactions.
+Each subtransaction has: amount (required), category_id, payee_id, payee_name, memo.
+
+⚠️ **LIMITATION**: YNAB does NOT support updating subtransactions on existing split transactions.
+This only works when converting a non-split transaction to a split.
 
 **Examples:**
 
@@ -666,6 +676,12 @@ Categorize a single transaction:
 
 Categorize and approve:
   {"transactions": [{"id": "abc123", "category_id": "cat456", "approved": true}]}
+
+Convert to split transaction:
+  {"transactions": [{"id": "abc123", "subtransactions": [
+    {"amount": -5000, "category_id": "cat-groceries"},
+    {"amount": -3000, "category_id": "cat-household"}
+  ]}]}
 
 Batch categorize:
   {"transactions": [
@@ -719,6 +735,7 @@ Returns updated transactions and any failures with error messages.`,
         memo: t.memo,
         payee_id: t.payee_id,
         payee_name: t.payee_name,
+        subtransactions: t.subtransactions,
       }));
 
       log.info('Updating transactions', {count: updates.length});
@@ -767,6 +784,26 @@ Returns updated transactions and any failures with error messages.`,
             .string()
             .optional()
             .describe('Set payee by name (creates if not found)'),
+          subtransactions: z
+            .array(
+              z.object({
+                amount: z
+                  .number()
+                  .int()
+                  .describe('Subtransaction amount in milliunits'),
+                category_id: z.string().optional().describe('Category ID'),
+                memo: z.string().optional().describe('Memo text'),
+                payee_id: z.string().optional().describe('Payee ID'),
+                payee_name: z
+                  .string()
+                  .optional()
+                  .describe('Payee name (creates if not found)'),
+              }),
+            )
+            .optional()
+            .describe(
+              'Convert to split transaction. Only works on non-split transactions.',
+            ),
         }),
       )
       .min(1)
@@ -1079,6 +1116,16 @@ const PayeeSelectorSchema = z
   .optional()
   .describe('Payee selector');
 
+const SubtransactionInputSchema = z.object({
+  amount: z
+    .number()
+    .int()
+    .describe('Subtransaction amount in milliunits (required)'),
+  category: CategorySelectorSchema,
+  memo: z.string().optional().describe('Memo/note for this subtransaction'),
+  payee: PayeeSelectorSchema,
+});
+
 const TransactionInputSchema = z.object({
   account: z
     .object({
@@ -1102,6 +1149,12 @@ const TransactionInputSchema = z.object({
     .describe('Flag color'),
   memo: z.string().optional().describe('Memo/note'),
   payee: PayeeSelectorSchema,
+  subtransactions: z
+    .array(SubtransactionInputSchema)
+    .optional()
+    .describe(
+      'Subtransactions for split transactions. When provided, category is ignored. Amounts must sum to parent amount.',
+    ),
 });
 
 type TransactionInputArgs = z.infer<typeof TransactionInputSchema>;
@@ -1131,6 +1184,17 @@ transactions (required) - Array of transactions to create (1-100), each containi
   - cleared - Whether cleared (default: false)
   - approved - Whether approved (default: false)
   - flag_color - Optional flag color
+  - subtransactions - Optional array for split transactions (see below)
+
+**Split Transactions (subtransactions):**
+
+To create a split transaction, provide a subtransactions array. Each subtransaction has:
+  - amount (required) - Amount in MILLIUNITS (must sum to parent amount)
+  - category - Category selector {"name": "..."} or {"id": "..."}
+  - payee - Optional payee selector
+  - memo - Optional memo
+
+When subtransactions are provided, the parent's category is ignored.
 
 **Examples:**
 
@@ -1143,11 +1207,18 @@ Single transaction (coffee purchase $5.50):
     "category": {"name": "Coffee"}
   }]}
 
-Multiple transactions:
-  {"transactions": [
-    {"account": {"name": "Checking"}, "date": "2026-01-19", "amount": -5500, "payee": {"name": "Starbucks"}, "category": {"name": "Coffee"}},
-    {"account": {"name": "Checking"}, "date": "2026-01-19", "amount": -12000, "payee": {"name": "Amazon"}, "category": {"name": "Shopping"}}
-  ]}
+Split transaction ($100 Target run):
+  {"transactions": [{
+    "account": {"name": "Checking"},
+    "date": "2026-01-19",
+    "amount": -10000,
+    "payee": {"name": "Target"},
+    "subtransactions": [
+      {"amount": -5000, "category": {"name": "Groceries"}},
+      {"amount": -3000, "category": {"name": "Household"}},
+      {"amount": -2000, "category": {"name": "Entertainment"}}
+    ]
+  }]}
 
 Paycheck ($3000):
   {"transactions": [{
@@ -1187,17 +1258,26 @@ Paycheck ($3000):
             t.account as AccountSelector,
           );
 
-          // Resolve category if provided
+          // Check if this is a split transaction
+          const hasSubtransactions =
+            t.subtransactions !== undefined && t.subtransactions.length > 0;
+
+          // Resolve category if provided (ignored if subtransactions provided)
           let categoryId: string | undefined;
-          const hasCategoryName =
-            t.category?.name !== undefined && t.category.name !== '';
-          const hasCategoryId =
-            t.category?.id !== undefined && t.category.id !== '';
-          if (t.category !== undefined && (hasCategoryName || hasCategoryId)) {
-            categoryId = await ynabClient.resolveCategoryId(
-              budgetId,
-              t.category as CategorySelector,
-            );
+          if (!hasSubtransactions) {
+            const hasCategoryName =
+              t.category?.name !== undefined && t.category.name !== '';
+            const hasCategoryId =
+              t.category?.id !== undefined && t.category.id !== '';
+            if (
+              t.category !== undefined &&
+              (hasCategoryName || hasCategoryId)
+            ) {
+              categoryId = await ynabClient.resolveCategoryId(
+                budgetId,
+                t.category as CategorySelector,
+              );
+            }
           }
 
           // Resolve payee if provided
@@ -1219,6 +1299,58 @@ Paycheck ($3000):
             }
           }
 
+          // Resolve subtransactions if provided
+          let subtransactions: SubtransactionInput[] | undefined;
+          if (hasSubtransactions && t.subtransactions !== undefined) {
+            subtransactions = await Promise.all(
+              t.subtransactions.map(async (sub) => {
+                // Resolve category for subtransaction
+                let subCategoryId: string | undefined;
+                const hasSubCategoryName =
+                  sub.category?.name !== undefined && sub.category.name !== '';
+                const hasSubCategoryId =
+                  sub.category?.id !== undefined && sub.category.id !== '';
+                if (hasSubCategoryName || hasSubCategoryId) {
+                  subCategoryId = await ynabClient.resolveCategoryId(
+                    budgetId,
+                    sub.category as CategorySelector,
+                  );
+                }
+
+                // Resolve payee for subtransaction
+                let subPayeeId: string | undefined;
+                let subPayeeName: string | undefined;
+                const hasSubPayeeName =
+                  sub.payee?.name !== undefined && sub.payee.name !== '';
+                const hasSubPayeeId =
+                  sub.payee?.id !== undefined && sub.payee.id !== '';
+                if (hasSubPayeeName || hasSubPayeeId) {
+                  const resolvedSubPayeeId = await ynabClient.resolvePayeeId(
+                    budgetId,
+                    sub.payee as PayeeSelector,
+                  );
+                  if (resolvedSubPayeeId !== null) {
+                    subPayeeId = resolvedSubPayeeId;
+                  } else if (
+                    hasSubPayeeName &&
+                    sub.payee?.name !== undefined &&
+                    sub.payee.name !== ''
+                  ) {
+                    subPayeeName = sub.payee.name;
+                  }
+                }
+
+                return {
+                  amount: sub.amount,
+                  category_id: subCategoryId,
+                  memo: sub.memo,
+                  payee_id: subPayeeId,
+                  payee_name: subPayeeName,
+                };
+              }),
+            );
+          }
+
           return {
             account_id: accountId,
             amount: t.amount,
@@ -1230,6 +1362,7 @@ Paycheck ($3000):
             memo: t.memo,
             payee_id: payeeId,
             payee_name: payeeName,
+            subtransactions,
           };
         }),
       );

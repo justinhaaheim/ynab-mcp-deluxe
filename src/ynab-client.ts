@@ -620,6 +620,13 @@ class YnabClient {
       memo: u.memo,
       payee_id: u.payee_id,
       payee_name: u.payee_name,
+      subtransactions: u.subtransactions?.map((sub) => ({
+        amount: sub.amount,
+        category_id: sub.category_id,
+        memo: sub.memo,
+        payee_id: sub.payee_id,
+        payee_name: sub.payee_name,
+      })),
     }));
 
     const response = await api.transactions.updateTransactions(budgetId, {
@@ -953,6 +960,13 @@ class YnabClient {
         memo: transaction.memo,
         payee_id: transaction.payee_id,
         payee_name: transaction.payee_name,
+        subtransactions: transaction.subtransactions?.map((sub) => ({
+          amount: sub.amount,
+          category_id: sub.category_id,
+          memo: sub.memo,
+          payee_id: sub.payee_id,
+          payee_name: sub.payee_name,
+        })),
       })),
     });
 
