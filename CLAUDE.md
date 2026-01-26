@@ -146,7 +146,6 @@ The `validateSelector()` helper ensures exactly one of `id` or `name` is provide
 | `YNAB_ACCESS_TOKEN` | Yes | YNAB API personal access token |
 | `YNAB_BUDGET_ID` | No | Hard constraint - only allow access to this budget (safety feature) |
 | `YNAB_READ_ONLY` | No | Set to `true` or `1` to block all write operations |
-| `YNAB_AUTO_BACKUP` | No | Set to `false` to disable auto-backup |
 
 ## Testing
 

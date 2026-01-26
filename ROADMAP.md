@@ -33,21 +33,40 @@ A working MCP server with 15 tools for YNAB budget management:
 
 ## In Progress
 
-- Integration test coverage (see `docs/plans/2026-01-22_integration-tests.md`)
+### Local Budget with Delta Sync
+
+**Tracking doc:** `docs/plans/2026-01-25_whole-budget-caching-delta-sync.md`
+
+Replacing the per-endpoint caching with a local budget replica:
+
+- Download entire budget on first access (single API call to `/budgets/{id}`)
+- Use YNAB's delta sync (`last_knowledge_of_server`) for efficient incremental updates
+- Persist every sync to `~/.config/ynab-mcp-deluxe/sync-history/` (automatic incremental backups)
+- Rename `force_refresh` → `force_sync` with support for `'full' | 'delta'`
+- Remove auto-backup (sync history provides continuous backups)
 
 ## Future Enhancements
 
-### Smarter Caching with Delta Sync
+### Static JSON Testing Mode
 
-Current caching: session-based, invalidated on write operations or via `force_refresh` parameter.
+Enable fast iteration and deterministic E2E tests by loading budget data from static JSON files instead of the YNAB API.
 
-Future direction: Download the **entire budget** on first access (single API call to `/budgets/{id}`), then use YNAB's delta sync (`last_knowledge_of_server` parameter) for efficient incremental updates when cache is invalidated or TTL expires. Benefits:
+**Environment variable:** `YNAB_STATIC_BUDGET_FILE=/path/to/test-budget.json`
 
-- Fewer API calls (one bulk fetch vs multiple endpoint calls)
-- Efficient updates (only changed data returned)
-- Better rate limit management (200 req/hour limit)
+When set:
 
-The YNAB API returns `server_knowledge` with responses - store this and pass it back to get only changes since that point.
+- Load budget from JSON file into LocalBudget
+- Reads work exactly as normal
+- Writes apply to a separate "mutations" overlay file (persistent across restarts)
+
+**Benefits:**
+
+- Fast iteration without hitting YNAB API
+- Deterministic E2E tests with known data
+- Easy to create test scenarios (capture a real budget, modify as needed)
+- "Reset to known state" capability
+
+**Capture utility:** `bun run capture-budget --budget "Test Budget" --output ./test-fixtures/test-budget.json`
 
 ### OAuth Authentication
 

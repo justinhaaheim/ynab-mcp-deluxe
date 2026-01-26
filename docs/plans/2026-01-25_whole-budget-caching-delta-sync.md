@@ -461,3 +461,201 @@ function mergeEntityArray<T extends {id: string; deleted?: boolean}>(
 
 - 2026-01-25: Initial plan created
 - 2026-01-25: Revised with local replica mental model and sync terminology
+- 2026-01-26: Finalized implementation plan after discussion
+
+---
+
+## Finalized Implementation Details (2026-01-26)
+
+### Key Decisions
+
+1. **Include transactions in full budget fetch** - LocalBudget will contain all data from `/budgets/{id}`
+2. **UUID alone for sync history directories** - Keep it simple
+3. **Disable auto-backup** - Sync history provides continuous incremental backups
+4. **Function name: `getLocalBudgetWithSync()`** - Explicit about what it does
+5. **forceSync option: `{forceSync: 'full' | 'delta'}`** - Allows forcing full re-fetch for sanity checks
+6. **Performance timing logs** - Capture API response time and merge operation time
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    YnabClient                        │
+│  (public API: getAccounts(), getTransactions(), etc) │
+└──────────────────────┬──────────────────────────────┘
+                       │
+                       ▼
+              getLocalBudgetWithSync()
+                       │
+         ┌─────────────┴─────────────┐
+         │       SyncProvider        │  ← abstraction
+         └─────────────┬─────────────┘
+                       │
+       ┌───────────────┼───────────────┐
+       │               │               │
+┌──────▼─────┐  ┌──────▼─────┐  ┌──────▼─────┐
+│    Api     │  │   Static   │  │  (Future)  │
+│  Sync      │  │   JSON     │  │ MultiEndpt │
+│ (default)  │  │  (testing) │  │   Sync     │
+└────────────┘  └────────────┘  └────────────┘
+```
+
+### New Files
+
+- `src/types.ts` - Add `LocalBudget`, `SyncHistoryEntry`, `SyncProvider` interfaces
+- `src/sync-history.ts` - Sync history persistence utilities
+- `src/local-budget.ts` - LocalBudget building and merging logic
+- `src/sync-providers.ts` - SyncProvider implementations
+
+### getLocalBudgetWithSync() Options
+
+```typescript
+interface GetLocalBudgetOptions {
+  /**
+   * Force a sync operation:
+   * - 'full': Do a complete re-fetch (useful for sanity checks, suspected drift)
+   * - 'delta': Force delta sync even if interval hasn't passed
+   * - undefined: Let sync policy decide
+   */
+  forceSync?: 'full' | 'delta';
+}
+```
+
+### Sync Policy Logic
+
+```typescript
+function shouldSync(
+  budget: LocalBudget | null,
+  options: GetLocalBudgetOptions,
+): 'full' | 'delta' | 'none' {
+  // Force full sync
+  if (options.forceSync === 'full') return 'full';
+
+  // No local budget yet
+  if (budget === null) return 'full';
+
+  // Force delta sync
+  if (options.forceSync === 'delta') return 'delta';
+
+  // Write happened - need to sync
+  if (budget.needsSync) return 'delta';
+
+  // Check interval
+  const elapsed = Date.now() - budget.lastSyncedAt.getTime();
+  const intervalMs = getSyncIntervalMs();
+  if (elapsed >= intervalMs) return 'delta';
+
+  // Local budget is fresh enough
+  return 'none';
+}
+```
+
+### Performance Timing
+
+Log timing for:
+
+1. API call duration
+2. Merge operation duration
+3. Lookup map rebuild duration
+4. Sync history persistence duration
+
+```typescript
+log.info('Sync completed', {
+  syncType: 'delta',
+  apiDurationMs: 1250,
+  mergeDurationMs: 45,
+  rebuildMapsDurationMs: 12,
+  persistDurationMs: 89,
+  totalDurationMs: 1396,
+  serverKnowledge: {previous: 12345, new: 12350},
+  changesReceived: {transactions: 5, categories: 0, accounts: 0},
+});
+```
+
+### Sanity Check (Full vs Delta Comparison)
+
+When `forceSync: 'full'` is used after a delta sync, compare key metrics:
+
+- Count of transactions, accounts, categories, payees
+- Log discrepancies as warnings
+
+```typescript
+log.warn('Budget drift detected', {
+  field: 'transactions.length',
+  localValue: 1234,
+  remoteValue: 1235,
+  drift: 1,
+});
+```
+
+### Static JSON Testing (Future Enhancement)
+
+Environment variable: `YNAB_STATIC_BUDGET_FILE=/path/to/test-budget.json`
+
+When set:
+
+- Load budget from JSON file instead of API
+- Reads work normally from LocalBudget
+- Writes either:
+  - Apply in-memory only (reset on restart)
+  - Write to "mutations" overlay file (persistent)
+  - Reject with clear error (read-only mock mode)
+
+See ROADMAP.md for tracking.
+
+### Implementation Phases
+
+#### Phase 1: Types & Foundation
+
+- [x] Define `LocalBudget` interface in `types.ts`
+- [x] Define `SyncProvider` interface
+- [x] Define `SyncHistoryEntry` interface
+- [x] Add `YNAB_SYNC_INTERVAL_SECONDS` env var handling
+- [x] Remove `YNAB_AUTO_BACKUP` env var handling
+
+#### Phase 2: Sync History Persistence (`src/sync-history.ts`)
+
+- [x] `getSyncHistoryDir(budgetId)` - returns directory path
+- [x] `ensureSyncHistoryDir(budgetId)` - creates if needed
+- [x] `generateSyncFilename(budgetId, syncType)` - timestamped filename
+- [x] `persistSyncResponse(...)` - writes JSON to disk
+
+#### Phase 3: LocalBudget Infrastructure (`src/local-budget.ts`)
+
+- [x] `buildLocalBudget(budgetResponse)` - creates LocalBudget from API response
+- [x] `mergeDelta(existing, delta)` - merges delta sync response
+- [x] `rebuildLookupMaps(budget)` - rebuilds O(1) lookup Maps
+- [x] `mergeEntityArray()` - generic helper for array merging
+
+#### Phase 4: Sync Providers (`src/sync-providers.ts`)
+
+- [x] `SyncProvider` interface
+- [x] `ApiSyncProvider` - full sync & delta sync via YNAB API
+- [x] `StaticSyncProvider` - stub (loads from JSON, returns same data)
+
+#### Phase 5: Integrate into `ynab-client.ts`
+
+- [x] Replace `budgetCaches` with `localBudgets: Map<string, LocalBudget>`
+- [x] Implement `getLocalBudgetWithSync(budgetId, options?)` with sync policy
+- [x] Update all read methods to use LocalBudget
+- [x] Update all write methods to call `markNeedsSync()`
+
+#### Phase 6: Remove Auto-Backup
+
+- [x] Remove auto-backup calls from `server.ts`
+- [x] Deprecate/remove `performAutoBackupIfNeeded()` in `backup.ts`
+- [x] Keep manual `backup_budget` tool
+
+#### Phase 7: API Surface Changes (`server.ts`)
+
+- [x] Rename `force_refresh` → `force_sync`
+- [x] Update schema to support `'full' | 'delta' | true | false`
+- [x] Update `prepareBudgetRequest()` to call new sync method
+- [x] Update server instructions
+
+#### Phase 8: Testing
+
+- [ ] Update existing tests
+- [ ] Add sync policy tests
+- [ ] Add delta merge tests
+- [ ] Add performance timing tests
