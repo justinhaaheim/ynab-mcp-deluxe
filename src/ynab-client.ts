@@ -38,7 +38,15 @@ import {
   utils,
 } from 'ynab';
 
-import {buildLocalBudget, detectDrift, mergeDelta} from './local-budget.js';
+import {
+  checkForDrift,
+  isAlwaysFullSyncEnabled,
+  isDriftDetectionEnabled,
+  logDriftCheckResult,
+  recordDriftCheck,
+  shouldPerformDriftCheck,
+} from './drift-detection.js';
+import {buildLocalBudget, mergeDelta} from './local-budget.js';
 import {persistSyncResponse} from './sync-history.js';
 import {ApiSyncProvider} from './sync-providers.js';
 
@@ -179,6 +187,10 @@ class YnabClient {
 
     // No local budget yet - need initial full sync
     if (localBudget === undefined) return 'full';
+
+    // "Always full sync" mode - skip delta optimization entirely
+    // This is a valid production strategy if delta sync proves unreliable
+    if (isAlwaysFullSyncEnabled()) return 'full';
 
     // Force delta sync requested
     if (options.forceSync === 'delta') return 'delta';
@@ -321,18 +333,59 @@ class YnabClient {
       totalDurationMs,
     });
 
-    // If this was a forced full sync after delta syncs, check for drift
-    if (options.forceSync === 'full' && existingBudget !== undefined) {
-      const drift = detectDrift(existingBudget, localBudget);
-      if (drift.length > 0) {
-        log.warn('Budget drift detected during full sync sanity check', {
+    // Store the merged budget
+    this.localBudgets.set(budgetId, localBudget);
+
+    // Perform drift detection if enabled and it's time for a check
+    if (isDriftDetectionEnabled() && shouldPerformDriftCheck()) {
+      log.info('Performing drift detection check...', {budgetId});
+
+      try {
+        // Fetch full budget (without server_knowledge) as source of truth
+        const driftCheckStartTime = performance.now();
+        const {budget: truthBudgetData, serverKnowledge: truthServerKnowledge} =
+          await syncProvider.fullSync(budgetId);
+        const truthBudget = buildLocalBudget(
           budgetId,
-          discrepancies: drift,
+          truthBudgetData,
+          truthServerKnowledge,
+        );
+        const driftCheckDurationMs = Math.round(
+          performance.now() - driftCheckStartTime,
+        );
+
+        // Compare merged budget with truth
+        const driftResult = checkForDrift(localBudget, truthBudget);
+        logDriftCheckResult(driftResult, budgetId, log);
+        recordDriftCheck();
+
+        log.debug('Drift check timing', {driftCheckDurationMs});
+
+        // Self-heal if drift detected: replace local with truth
+        if (driftResult.hasDrift) {
+          this.localBudgets.set(budgetId, truthBudget);
+
+          // Persist the truth budget to sync history as well
+          await persistSyncResponse(
+            budgetId,
+            'full',
+            truthBudgetData,
+            truthServerKnowledge,
+            null,
+            log,
+          );
+
+          return truthBudget;
+        }
+      } catch (error) {
+        // Don't fail the sync if drift detection fails - just log and continue
+        log.warn('Drift detection failed, continuing with merged budget', {
+          budgetId,
+          error: error instanceof Error ? error.message : String(error),
         });
       }
     }
 
-    this.localBudgets.set(budgetId, localBudget);
     return localBudget;
   }
 

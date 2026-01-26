@@ -141,11 +141,16 @@ The `validateSelector()` helper ensures exactly one of `id` or `name` is provide
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `YNAB_ACCESS_TOKEN` | Yes | YNAB API personal access token |
-| `YNAB_BUDGET_ID` | No | Hard constraint - only allow access to this budget (safety feature) |
-| `YNAB_READ_ONLY` | No | Set to `true` or `1` to block all write operations |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `YNAB_ACCESS_TOKEN` | Yes | - | YNAB API personal access token |
+| `YNAB_BUDGET_ID` | No | - | Hard constraint - only allow access to this budget (safety feature) |
+| `YNAB_READ_ONLY` | No | `false` | Set to `true` or `1` to block all write operations |
+| `YNAB_SYNC_INTERVAL_SECONDS` | No | `600` | How often to sync with YNAB (0 = always sync) |
+| `YNAB_DRIFT_DETECTION` | No | `true` | Enable drift detection to validate merge logic |
+| `YNAB_ALWAYS_FULL_SYNC` | No | `false` | Skip delta sync, always fetch full budget |
+| `YNAB_DRIFT_CHECK_INTERVAL_SYNCS` | No | `1` | Check for drift every N syncs |
+| `YNAB_DRIFT_CHECK_INTERVAL_MINUTES` | No | `0` | Check for drift every N minutes (0 = disabled) |
 
 ## Testing
 
