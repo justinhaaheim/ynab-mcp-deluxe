@@ -20,6 +20,7 @@ import type {
 } from './types.js';
 
 import {FastMCP, type SerializableValue} from 'fastmcp';
+import {AccountType} from 'ynab';
 import {z} from 'zod';
 
 import {backupBudget, performAutoBackupIfNeeded} from './backup.js';
@@ -1513,21 +1514,9 @@ Fund emergency fund with $1000:
 // Tool 15: create_account
 // ============================================================================
 
-const AccountTypeSchema = z.enum([
-  'checking',
-  'savings',
-  'cash',
-  'creditCard',
-  'lineOfCredit',
-  'otherAsset',
-  'otherLiability',
-  'mortgage',
-  'autoLoan',
-  'studentLoan',
-  'personalLoan',
-  'medicalDebt',
-  'otherDebt',
-]);
+// Derive account types from YNAB SDK to stay in sync with API
+const accountTypeValues = Object.values(AccountType) as [string, ...string[]];
+const AccountTypeSchema = z.enum(accountTypeValues);
 
 server.addTool({
   annotations: {
@@ -1586,10 +1575,11 @@ Create a savings account with $0:
         name: args.name,
         type: args.type,
       });
+      // Cast is safe - Zod already validated args.type is a valid AccountType
       const account = await ynabClient.createAccount(
         budgetId,
         args.name,
-        args.type,
+        args.type as AccountType,
         args.balance,
       );
       log.info('Account created', {
