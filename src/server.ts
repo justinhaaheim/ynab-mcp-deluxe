@@ -1094,7 +1094,10 @@ const TransactionInputSchema = z.object({
     ),
   approved: z.boolean().optional().describe('Whether approved'),
   category: CategorySelectorSchema,
-  cleared: z.boolean().optional().describe('Whether cleared'),
+  cleared: z
+    .enum(['cleared', 'uncleared', 'reconciled'])
+    .optional()
+    .describe('Cleared status'),
   date: z.string().describe('Transaction date (YYYY-MM-DD)'),
   flag_color: z
     .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple'])
@@ -1128,7 +1131,7 @@ transactions (required) - Array of transactions to create (1-100), each containi
     - If using name and payee doesn't exist, YNAB creates it
   - category - Category selector {"name": "..."} or {"id": "..."}
   - memo - Optional memo/note
-  - cleared - Whether cleared (default: false)
+  - cleared - "cleared", "uncleared", or "reconciled" (default: "uncleared")
   - approved - Whether approved (default: false)
   - flag_color - Optional flag color
 

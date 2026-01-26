@@ -333,7 +333,7 @@ export interface CreateTransactionInput {
   amount: number;
   approved?: boolean;
   category_id?: string;
-  cleared?: boolean;
+  cleared?: 'cleared' | 'uncleared' | 'reconciled';
   date: string;
   flag_color?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple';
   memo?: string;

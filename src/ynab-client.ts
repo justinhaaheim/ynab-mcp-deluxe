@@ -945,9 +945,11 @@ class YnabClient {
         approved: transaction.approved ?? false,
         category_id: transaction.category_id,
         cleared:
-          transaction.cleared === true
-            ? TransactionClearedStatus.Cleared
-            : TransactionClearedStatus.Uncleared,
+          transaction.cleared === 'reconciled'
+            ? TransactionClearedStatus.Reconciled
+            : transaction.cleared === 'cleared'
+              ? TransactionClearedStatus.Cleared
+              : TransactionClearedStatus.Uncleared,
         date: transaction.date,
         flag_color: transaction.flag_color as TransactionFlagColor | undefined,
         memo: transaction.memo,
