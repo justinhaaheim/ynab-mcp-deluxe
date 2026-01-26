@@ -23,6 +23,7 @@ import type {
 
 import {
   type Account,
+  type AccountType,
   api as YnabApi,
   type BudgetSummary,
   type Category,
@@ -1021,7 +1022,7 @@ class YnabClient {
   async createAccount(
     budgetId: string,
     name: string,
-    type: string,
+    type: AccountType,
     balance: number,
   ): Promise<EnrichedAccount> {
     assertWriteAllowed('create_account');
@@ -1032,20 +1033,7 @@ class YnabClient {
       account: {
         balance,
         name,
-        type: type as
-          | 'checking'
-          | 'savings'
-          | 'cash'
-          | 'creditCard'
-          | 'lineOfCredit'
-          | 'otherAsset'
-          | 'otherLiability'
-          | 'mortgage'
-          | 'autoLoan'
-          | 'studentLoan'
-          | 'personalLoan'
-          | 'medicalDebt'
-          | 'otherDebt',
+        type,
       },
     });
 

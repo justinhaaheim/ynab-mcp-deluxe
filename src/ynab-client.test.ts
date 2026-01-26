@@ -222,22 +222,8 @@ describe('Read-Only Mode', () => {
       expect(typeof result.uncleared_balance).toBe('number');
       expect(typeof result.on_budget).toBe('boolean');
       expect(typeof result.closed).toBe('boolean');
-      // Verify the type is one of the valid YNAB account types
-      const validAccountTypes = [
-        'checking',
-        'savings',
-        'cash',
-        'creditCard',
-        'lineOfCredit',
-        'otherAsset',
-        'otherLiability',
-        'mortgage',
-        'autoLoan',
-        'studentLoan',
-        'personalLoan',
-        'medicalDebt',
-        'otherDebt',
-      ];
+      // Verify the type is one of the valid YNAB account types (derived from SDK)
+      const validAccountTypes = Object.values(ynab.AccountType);
       expect(validAccountTypes).toContain(result.type);
     });
   });
