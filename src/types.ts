@@ -189,6 +189,22 @@ export type TransactionSortBy =
   | 'amount_asc';
 
 /**
+ * Update subtransaction input (for split transactions)
+ */
+export interface UpdateSubTransactionInput {
+  /** Amount in milliunits (must sum to parent transaction amount) */
+  amount: number;
+  /** Category ID for this subtransaction */
+  category_id?: string;
+  /** Memo for this subtransaction (max 500 chars) */
+  memo?: string;
+  /** Payee ID for this subtransaction */
+  payee_id?: string;
+  /** Payee name (creates new if not found, max 200 chars) */
+  payee_name?: string;
+}
+
+/**
  * Transaction update payload - supports full transaction editing
  */
 export interface TransactionUpdate {
@@ -214,6 +230,16 @@ export interface TransactionUpdate {
   payee_id?: string;
   /** Set payee by name (creates new payee if not found) */
   payee_name?: string;
+  /**
+   * Subtransactions for split transactions.
+   * WARNING: This OVERWRITES all existing subtransactions - it does not merge.
+   * When provided, the parent category_id should be null.
+   * Subtransaction amounts must sum to the parent amount.
+   *
+   * TODO: Consider adding a merge mode that fetches existing subtransactions
+   * and merges with the provided ones, for a more intuitive UX.
+   */
+  subtransactions?: UpdateSubTransactionInput[];
 }
 
 /**
@@ -326,6 +352,22 @@ export interface EnrichedMonthCategory {
 }
 
 /**
+ * Create subtransaction input (for split transactions)
+ */
+export interface CreateSubTransactionInput {
+  /** Amount in milliunits (must sum to parent transaction amount) */
+  amount: number;
+  /** Category ID for this subtransaction */
+  category_id?: string;
+  /** Memo for this subtransaction (max 500 chars) */
+  memo?: string;
+  /** Payee ID for this subtransaction */
+  payee_id?: string;
+  /** Payee name (creates new if not found, max 200 chars) */
+  payee_name?: string;
+}
+
+/**
  * Create transaction input
  */
 export interface CreateTransactionInput {
@@ -339,6 +381,12 @@ export interface CreateTransactionInput {
   memo?: string;
   payee_id?: string;
   payee_name?: string;
+  /**
+   * Subtransactions for split transactions.
+   * When provided, the parent category_id should be null.
+   * Subtransaction amounts must sum to the parent amount.
+   */
+  subtransactions?: CreateSubTransactionInput[];
 }
 
 /**
