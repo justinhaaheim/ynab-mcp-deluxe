@@ -608,6 +608,9 @@ class YnabClient {
     };
 
     // Build the patch request with all supported fields
+    // TODO: Consider adding a merge mode that fetches existing subtransactions
+    // and merges with the provided ones, for a more intuitive UX. Currently,
+    // providing subtransactions will OVERWRITE all existing ones (matching YNAB API behavior).
     const patchTransactions = updates.map((u) => ({
       account_id: u.account_id,
       amount: u.amount,
@@ -620,6 +623,13 @@ class YnabClient {
       memo: u.memo,
       payee_id: u.payee_id,
       payee_name: u.payee_name,
+      subtransactions: u.subtransactions?.map((sub) => ({
+        amount: sub.amount,
+        category_id: sub.category_id,
+        memo: sub.memo,
+        payee_id: sub.payee_id,
+        payee_name: sub.payee_name,
+      })),
     }));
 
     const response = await api.transactions.updateTransactions(budgetId, {
@@ -953,6 +963,13 @@ class YnabClient {
         memo: transaction.memo,
         payee_id: transaction.payee_id,
         payee_name: transaction.payee_name,
+        subtransactions: transaction.subtransactions?.map((sub) => ({
+          amount: sub.amount,
+          category_id: sub.category_id,
+          memo: sub.memo,
+          payee_id: sub.payee_id,
+          payee_name: sub.payee_name,
+        })),
       })),
     });
 
