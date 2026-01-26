@@ -355,11 +355,19 @@ class YnabClient {
         );
 
         // Compare merged budget with truth
+        const compareStartTime = performance.now();
         const driftResult = checkForDrift(localBudget, truthBudget);
+        const compareDurationMs = Math.round(
+          performance.now() - compareStartTime,
+        );
         logDriftCheckResult(driftResult, budgetId, log);
         recordDriftCheck();
 
-        log.debug('Drift check timing', {driftCheckDurationMs});
+        log.debug('Drift check timing', {
+          compareDurationMs,
+          driftCheckDurationMs,
+          fetchDurationMs: driftCheckDurationMs - compareDurationMs,
+        });
 
         // Self-heal if drift detected: replace local with truth
         if (driftResult.hasDrift) {

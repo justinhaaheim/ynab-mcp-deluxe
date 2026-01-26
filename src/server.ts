@@ -35,6 +35,7 @@ import {
   sortTransactions,
   validateSelector,
 } from './helpers.js';
+import {clearSyncHistory} from './sync-history.js';
 import {isReadOnlyMode, ynabClient} from './ynab-client.js';
 
 const server = new FastMCP({
@@ -1799,6 +1800,88 @@ Backup specific budget:
     }
   },
   name: 'backup_budget',
+  parameters: z.object({
+    budget: BudgetSelectorSchema,
+  }),
+});
+
+// ----------------------------------------------------------------------------
+// clear_sync_history - Clear local sync history files
+// ----------------------------------------------------------------------------
+
+server.addTool({
+  annotations: {
+    openWorldHint: false,
+    readOnlyHint: false, // Deletes local files
+    title: 'Clear Sync History',
+  },
+  description: `Clear local sync history files.
+
+The sync history contains complete budget snapshots used for delta synchronization. Use this tool to:
+- Free up disk space
+- Force a fresh full sync on next access
+- Clear potentially sensitive financial data from local storage
+
+**Parameters:**
+
+budget - Optional budget selector. If provided, only clears that budget's history.
+         If omitted, clears sync history for ALL budgets.
+
+**Returns:**
+- budgets_cleared: List of budget IDs cleared
+- files_deleted: Number of history files deleted
+- errors: Any non-fatal errors encountered
+
+**Location:** ~/.config/ynab-mcp-deluxe/sync-history/
+
+**Examples:**
+
+Clear all sync history:
+  {}
+
+Clear specific budget:
+  {"budget": {"id": "abc123-..."}}`,
+  execute: async (args, {log}) => {
+    log.debug('clear_sync_history called', {budget: args.budget});
+
+    try {
+      let budgetId: string | null = null;
+
+      if (args.budget !== undefined) {
+        validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+        budgetId = await ynabClient.resolveBudgetId(
+          args.budget as BudgetSelector | undefined,
+        );
+        log.debug('Resolved budget', {budgetId});
+      }
+
+      const startTime = performance.now();
+      // Cast log to satisfy ContextLog interface (FastMCP uses SerializableValue, we expect unknown)
+      const result = await clearSyncHistory(
+        budgetId,
+        log as Parameters<typeof clearSyncHistory>[1],
+      );
+      const durationMs = Math.round(performance.now() - startTime);
+
+      return JSON.stringify(
+        {
+          budgets_cleared: result.budgetsCleared,
+          duration_ms: durationMs,
+          errors: result.errors.length > 0 ? result.errors : undefined,
+          files_deleted: result.filesDeleted,
+          message:
+            result.budgetsCleared.length > 0
+              ? `Cleared sync history for ${result.budgetsCleared.length} budget(s), ${result.filesDeleted} files deleted`
+              : 'No sync history to clear',
+        },
+        null,
+        2,
+      );
+    } catch (error) {
+      return await createEnhancedErrorResponse(error, 'Clear sync history');
+    }
+  },
+  name: 'clear_sync_history',
   parameters: z.object({
     budget: BudgetSelectorSchema,
   }),

@@ -14,7 +14,7 @@
 import type {SyncHistoryEntry, SyncType} from './types.js';
 import type {BudgetDetail} from 'ynab';
 
-import {mkdir, writeFile} from 'node:fs/promises';
+import {mkdir, readdir, rm, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 
@@ -137,4 +137,95 @@ export async function persistSyncResponse(
     });
     return null;
   }
+}
+
+/**
+ * Result of clearing sync history
+ */
+export interface ClearSyncHistoryResult {
+  /** Budget IDs that were cleared (or 'all' if no specific budget) */
+  budgetsCleared: string[];
+  /** Any errors encountered (non-fatal) */
+  errors: string[];
+  /** Number of files deleted */
+  filesDeleted: number;
+}
+
+/**
+ * Clear sync history for a specific budget or all budgets.
+ *
+ * @param budgetId - Optional budget ID to clear. If not provided, clears all budgets.
+ * @param log - Logger for debug/error output
+ * @returns Summary of the clear operation
+ */
+export async function clearSyncHistory(
+  budgetId: string | null,
+  log: ContextLog,
+): Promise<ClearSyncHistoryResult> {
+  const result: ClearSyncHistoryResult = {
+    budgetsCleared: [],
+    errors: [],
+    filesDeleted: 0,
+  };
+
+  const baseDir = getSyncHistoryBaseDir();
+
+  try {
+    if (budgetId !== null) {
+      // Clear specific budget
+      const budgetDir = getSyncHistoryDir(budgetId);
+      try {
+        const files = await readdir(budgetDir);
+        result.filesDeleted = files.length;
+        await rm(budgetDir, {force: true, recursive: true});
+        result.budgetsCleared.push(budgetId);
+        log.info('Cleared sync history for budget', {
+          budgetId,
+          filesDeleted: result.filesDeleted,
+        });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          // Directory doesn't exist - nothing to clear
+          log.info('No sync history to clear for budget', {budgetId});
+        } else {
+          throw error;
+        }
+      }
+    } else {
+      // Clear all budgets
+      try {
+        const budgetDirs = await readdir(baseDir);
+        for (const dir of budgetDirs) {
+          const budgetDir = getSyncHistoryDir(dir);
+          try {
+            const files = await readdir(budgetDir);
+            result.filesDeleted += files.length;
+            await rm(budgetDir, {force: true, recursive: true});
+            result.budgetsCleared.push(dir);
+          } catch (dirError) {
+            result.errors.push(
+              `Failed to clear ${dir}: ${dirError instanceof Error ? dirError.message : String(dirError)}`,
+            );
+          }
+        }
+        log.info('Cleared all sync history', {
+          budgetsCleared: result.budgetsCleared.length,
+          filesDeleted: result.filesDeleted,
+        });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          // Base directory doesn't exist - nothing to clear
+          log.info('No sync history directory exists');
+        } else {
+          throw error;
+        }
+      }
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    result.errors.push(errorMessage);
+    log.error('Failed to clear sync history', {budgetId, error: errorMessage});
+  }
+
+  return result;
 }
