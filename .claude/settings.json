@@ -88,6 +88,15 @@
     ],
     "SessionStart": [
       {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/setup_remote_environment.sh"
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "command": "bd prime",
