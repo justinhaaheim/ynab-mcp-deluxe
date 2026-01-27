@@ -48,6 +48,8 @@
 
       "Bash(gh pr diff:*)",
       "Bash(gh pr view:*)",
+      
+      "Bash(bd:*)",
 
       "Bash(xcrun simctl runtime:*)",
       "Bash(xcrun simctl list:*)",
