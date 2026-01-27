@@ -32,9 +32,11 @@ import {
   type Category,
   type CategoryGroupWithCategories,
   type CurrencyFormat,
+  type SubTransaction,
   TransactionClearedStatus,
   type TransactionDetail,
   type TransactionFlagColor,
+  type TransactionSummary,
   utils,
 } from 'ynab';
 
@@ -682,7 +684,123 @@ class YnabClient {
   }
 
   /**
-   * Get transactions with optional filters
+   * Enrich a TransactionSummary (from full budget endpoint) with resolved names.
+   *
+   * The full budget endpoint returns TransactionSummary[] which only has IDs,
+   * not resolved names. This method looks up names from the LocalBudget's
+   * lookup maps and joins subtransactions from the flat subtransactions array.
+   *
+   * @param tx - The TransactionSummary from LocalBudget.transactions
+   * @param localBudget - The LocalBudget with lookup maps and subtransactions
+   * @returns An EnrichedTransaction with resolved names and subtransactions
+   */
+  private enrichTransactionSummary(
+    tx: TransactionSummary,
+    localBudget: LocalBudget,
+  ): EnrichedTransaction {
+    // Look up account name
+    const account = localBudget.accountById.get(tx.account_id);
+    const accountName = account?.name ?? 'Unknown Account';
+
+    // Look up payee name
+    let payeeName: string | null = null;
+    if (tx.payee_id !== undefined && tx.payee_id !== null) {
+      const payee = localBudget.payeeById.get(tx.payee_id);
+      payeeName = payee?.name ?? null;
+    }
+
+    // Look up category name and group name
+    let categoryName: string | null = null;
+    let categoryGroupName: string | null = null;
+    if (tx.category_id !== undefined && tx.category_id !== null) {
+      const category = localBudget.categoryById.get(tx.category_id);
+      if (category !== undefined) {
+        categoryName = category.name;
+        categoryGroupName =
+          localBudget.categoryGroupNameById.get(category.category_group_id) ??
+          null;
+      }
+    }
+
+    // Find subtransactions for this transaction
+    const subtransactions = localBudget.subtransactions.filter(
+      (sub) => sub.transaction_id === tx.id && sub.deleted !== true,
+    );
+
+    // Enrich subtransactions with resolved names
+    const enrichedSubtransactions: EnrichedSubTransaction[] =
+      subtransactions.map((sub: SubTransaction) => {
+        let subCategoryGroupName: string | null = null;
+        let subCategoryName: string | null = null;
+        if (sub.category_id !== undefined && sub.category_id !== null) {
+          const category = localBudget.categoryById.get(sub.category_id);
+          if (category !== undefined) {
+            subCategoryName = category.name;
+            subCategoryGroupName =
+              localBudget.categoryGroupNameById.get(
+                category.category_group_id,
+              ) ?? null;
+          }
+        }
+
+        // Look up payee name for subtransaction
+        let subPayeeName: string | null = sub.payee_name ?? null;
+        if (
+          subPayeeName === null &&
+          sub.payee_id !== undefined &&
+          sub.payee_id !== null
+        ) {
+          const payee = localBudget.payeeById.get(sub.payee_id);
+          subPayeeName = payee?.name ?? null;
+        }
+
+        return {
+          amount: sub.amount,
+          amount_currency: this.toCurrency(
+            sub.amount,
+            localBudget.currencyFormat,
+          ),
+          category_group_name: subCategoryGroupName,
+          category_id: sub.category_id ?? null,
+          category_name: sub.category_name ?? subCategoryName,
+          id: sub.id,
+          memo: sub.memo ?? null,
+          payee_id: sub.payee_id ?? null,
+          payee_name: subPayeeName,
+          transaction_id: sub.transaction_id,
+          transfer_account_id: sub.transfer_account_id ?? null,
+        };
+      });
+
+    return {
+      account_id: tx.account_id,
+      account_name: accountName,
+      amount: tx.amount,
+      amount_currency: this.toCurrency(tx.amount, localBudget.currencyFormat),
+      approved: tx.approved,
+      category_group_name: categoryGroupName,
+      category_id: tx.category_id ?? null,
+      category_name: categoryName,
+      cleared: tx.cleared as 'cleared' | 'uncleared' | 'reconciled',
+      date: tx.date,
+      flag_color: tx.flag_color ?? null,
+      id: tx.id,
+      import_id: tx.import_id ?? null,
+      import_payee_name: tx.import_payee_name ?? null,
+      import_payee_name_original: tx.import_payee_name_original ?? null,
+      memo: tx.memo ?? null,
+      payee_id: tx.payee_id ?? null,
+      payee_name: payeeName,
+      subtransactions: enrichedSubtransactions,
+      transfer_account_id: tx.transfer_account_id ?? null,
+    };
+  }
+
+  /**
+   * Get transactions with optional filters.
+   *
+   * Reads from LocalBudget.transactions and applies filters locally.
+   * No API call is made - data comes from the synced local budget.
    */
   async getTransactions(
     budgetId: string,
@@ -692,34 +810,41 @@ class YnabClient {
       type?: 'uncategorized' | 'unapproved';
     } = {},
   ): Promise<EnrichedTransaction[]> {
-    const cache = await this.getLocalBudget(budgetId);
-    const api = this.getApi();
+    const localBudget = await this.getLocalBudget(budgetId);
 
-    let transactions: TransactionDetail[];
+    // Start with all non-deleted transactions
+    let transactions = localBudget.transactions.filter(
+      (tx) => tx.deleted !== true,
+    );
 
+    // Filter by account if specified
     if (options.accountId !== undefined && options.accountId !== '') {
-      // Use account-specific endpoint
-      const response = await api.transactions.getTransactionsByAccount(
-        budgetId,
-        options.accountId,
-        options.sinceDate,
-        options.type,
+      transactions = transactions.filter(
+        (tx) => tx.account_id === options.accountId,
       );
-      transactions = response.data.transactions;
-    } else {
-      // Use main transactions endpoint
-      const response = await api.transactions.getTransactions(
-        budgetId,
-        options.sinceDate,
-        options.type,
-      );
-      transactions = response.data.transactions;
     }
 
-    // Filter out deleted transactions
-    return transactions
-      .filter((tx) => !tx.deleted)
-      .map((tx) => this.enrichTransaction(tx, cache));
+    // Filter by date if specified (since_date is inclusive)
+    if (options.sinceDate !== undefined && options.sinceDate !== '') {
+      const sinceDate = options.sinceDate;
+      transactions = transactions.filter((tx) => tx.date >= sinceDate);
+    }
+
+    // Filter by type
+    if (options.type === 'uncategorized') {
+      // Uncategorized = no category assigned
+      transactions = transactions.filter(
+        (tx) => tx.category_id === undefined || tx.category_id === null,
+      );
+    } else if (options.type === 'unapproved') {
+      // Unapproved = not yet approved
+      transactions = transactions.filter((tx) => tx.approved !== true);
+    }
+
+    // Enrich and return
+    return transactions.map((tx) =>
+      this.enrichTransactionSummary(tx, localBudget),
+    );
   }
 
   /**
@@ -1061,122 +1186,205 @@ class YnabClient {
   }
 
   /**
-   * Get a single transaction by ID
+   * Get a single transaction by ID.
+   *
+   * Reads from LocalBudget.transactions - no API call is made.
    */
   async getTransaction(
     budgetId: string,
     transactionId: string,
   ): Promise<EnrichedTransaction> {
-    const cache = await this.getLocalBudget(budgetId);
-    const api = this.getApi();
+    const localBudget = await this.getLocalBudget(budgetId);
 
-    const response = await api.transactions.getTransactionById(
-      budgetId,
-      transactionId,
+    // Find the transaction in local budget
+    const transaction = localBudget.transactions.find(
+      (tx) => tx.id === transactionId && tx.deleted !== true,
     );
 
-    return this.enrichTransaction(response.data.transaction, cache);
+    if (transaction === undefined) {
+      throw new Error(`Transaction not found with ID: '${transactionId}'.`);
+    }
+
+    return this.enrichTransactionSummary(transaction, localBudget);
   }
 
   /**
-   * Get scheduled transactions
+   * Get scheduled transactions.
+   *
+   * Reads from LocalBudget.scheduledTransactions - no API call is made.
    */
   async getScheduledTransactions(
     budgetId: string,
   ): Promise<EnrichedScheduledTransaction[]> {
-    const cache = await this.getLocalBudget(budgetId);
-    const api = this.getApi();
+    const localBudget = await this.getLocalBudget(budgetId);
 
-    const response =
-      await api.scheduledTransactions.getScheduledTransactions(budgetId);
+    return localBudget.scheduledTransactions
+      .filter((txn) => txn.deleted !== true)
+      .map((txn) => {
+        // Look up account name
+        const account = localBudget.accountById.get(txn.account_id);
+        const accountName = account?.name ?? 'Unknown Account';
 
-    return response.data.scheduled_transactions
-      .filter((txn) => !txn.deleted)
-      .map((txn) => ({
-        account_id: txn.account_id,
-        account_name: txn.account_name,
-        amount: txn.amount,
-        amount_currency: this.toCurrency(txn.amount, cache.currencyFormat),
-        category_id: txn.category_id ?? null,
-        category_name: txn.category_name ?? null,
-        date_first: txn.date_first,
-        date_next: txn.date_next,
-        flag_color: txn.flag_color ?? null,
-        frequency: txn.frequency,
-        id: txn.id,
-        memo: txn.memo ?? null,
-        payee_id: txn.payee_id ?? null,
-        payee_name: txn.payee_name ?? null,
-        subtransactions: txn.subtransactions
-          .filter((sub) => !sub.deleted)
-          .map((sub) => ({
-            amount: sub.amount,
-            amount_currency: this.toCurrency(sub.amount, cache.currencyFormat),
-            category_id: sub.category_id ?? null,
-            category_name: sub.category_name ?? null,
-            id: sub.id,
-            memo: sub.memo ?? null,
-            payee_id: sub.payee_id ?? null,
-            payee_name: sub.payee_name ?? null,
-            scheduled_transaction_id: sub.scheduled_transaction_id,
-            transfer_account_id: sub.transfer_account_id ?? null,
-          })),
-        transfer_account_id: txn.transfer_account_id ?? null,
+        // Look up payee name
+        let payeeName: string | null = null;
+        if (txn.payee_id !== undefined && txn.payee_id !== null) {
+          const payee = localBudget.payeeById.get(txn.payee_id);
+          payeeName = payee?.name ?? null;
+        }
+
+        // Look up category name
+        let categoryName: string | null = null;
+        if (txn.category_id !== undefined && txn.category_id !== null) {
+          const category = localBudget.categoryById.get(txn.category_id);
+          categoryName = category?.name ?? null;
+        }
+
+        // Find subtransactions for this scheduled transaction
+        const subtransactions = localBudget.scheduledSubtransactions.filter(
+          (sub) =>
+            sub.scheduled_transaction_id === txn.id && sub.deleted !== true,
+        );
+
+        return {
+          account_id: txn.account_id,
+          account_name: accountName,
+          amount: txn.amount,
+          amount_currency: this.toCurrency(
+            txn.amount,
+            localBudget.currencyFormat,
+          ),
+          category_id: txn.category_id ?? null,
+          category_name: categoryName,
+          date_first: txn.date_first,
+          date_next: txn.date_next,
+          flag_color: txn.flag_color ?? null,
+          frequency: txn.frequency,
+          id: txn.id,
+          memo: txn.memo ?? null,
+          payee_id: txn.payee_id ?? null,
+          payee_name: payeeName,
+          subtransactions: subtransactions.map((sub) => {
+            // Look up payee name for subtransaction if not already set
+            let subPayeeName = sub.payee_name ?? null;
+            if (
+              subPayeeName === null &&
+              sub.payee_id !== undefined &&
+              sub.payee_id !== null
+            ) {
+              const payee = localBudget.payeeById.get(sub.payee_id);
+              subPayeeName = payee?.name ?? null;
+            }
+
+            // Look up category name if not already set
+            let subCategoryName = sub.category_name ?? null;
+            if (
+              subCategoryName === null &&
+              sub.category_id !== undefined &&
+              sub.category_id !== null
+            ) {
+              const category = localBudget.categoryById.get(sub.category_id);
+              subCategoryName = category?.name ?? null;
+            }
+
+            return {
+              amount: sub.amount,
+              amount_currency: this.toCurrency(
+                sub.amount,
+                localBudget.currencyFormat,
+              ),
+              category_id: sub.category_id ?? null,
+              category_name: subCategoryName,
+              id: sub.id,
+              memo: sub.memo ?? null,
+              payee_id: sub.payee_id ?? null,
+              payee_name: subPayeeName,
+              scheduled_transaction_id: sub.scheduled_transaction_id,
+              transfer_account_id: sub.transfer_account_id ?? null,
+            };
+          }),
+          transfer_account_id: txn.transfer_account_id ?? null,
+        };
+      });
+  }
+
+  /**
+   * Get budget months list.
+   *
+   * Reads from LocalBudget.months - no API call is made.
+   */
+  async getBudgetMonths(budgetId: string): Promise<EnrichedMonthSummary[]> {
+    const localBudget = await this.getLocalBudget(budgetId);
+
+    return localBudget.months
+      .filter((month) => month.deleted !== true)
+      .map((month) => ({
+        activity: month.activity,
+        activity_currency: this.toCurrency(
+          month.activity,
+          localBudget.currencyFormat,
+        ),
+        age_of_money: month.age_of_money ?? null,
+        budgeted: month.budgeted,
+        budgeted_currency: this.toCurrency(
+          month.budgeted,
+          localBudget.currencyFormat,
+        ),
+        income: month.income,
+        income_currency: this.toCurrency(
+          month.income,
+          localBudget.currencyFormat,
+        ),
+        month: month.month,
+        note: month.note ?? null,
+        to_be_budgeted: month.to_be_budgeted,
+        to_be_budgeted_currency: this.toCurrency(
+          month.to_be_budgeted,
+          localBudget.currencyFormat,
+        ),
       }));
   }
 
   /**
-   * Get budget months list
-   */
-  async getBudgetMonths(budgetId: string): Promise<EnrichedMonthSummary[]> {
-    const cache = await this.getLocalBudget(budgetId);
-    const api = this.getApi();
-
-    const response = await api.months.getBudgetMonths(budgetId);
-
-    return response.data.months.map((month) => ({
-      activity: month.activity,
-      activity_currency: this.toCurrency(month.activity, cache.currencyFormat),
-      age_of_money: month.age_of_money ?? null,
-      budgeted: month.budgeted,
-      budgeted_currency: this.toCurrency(month.budgeted, cache.currencyFormat),
-      income: month.income,
-      income_currency: this.toCurrency(month.income, cache.currencyFormat),
-      month: month.month,
-      note: month.note ?? null,
-      to_be_budgeted: month.to_be_budgeted,
-      to_be_budgeted_currency: this.toCurrency(
-        month.to_be_budgeted,
-        cache.currencyFormat,
-      ),
-    }));
-  }
-
-  /**
-   * Get budget month detail with categories
+   * Get budget month detail with categories.
+   *
+   * Reads from LocalBudget.months - no API call is made.
    */
   async getBudgetMonth(
     budgetId: string,
     month: string,
   ): Promise<EnrichedBudgetMonthDetail> {
-    const cache = await this.getLocalBudget(budgetId);
-    const api = this.getApi();
+    const localBudget = await this.getLocalBudget(budgetId);
 
-    const response = await api.months.getBudgetMonth(budgetId, month);
-    const monthData = response.data.month;
+    // Find the month in local budget
+    const monthData = localBudget.months.find(
+      (m) => m.month === month && m.deleted !== true,
+    );
+
+    if (monthData === undefined) {
+      throw new Error(`Budget month not found: '${month}'.`);
+    }
 
     const categories: EnrichedMonthCategory[] = monthData.categories
       .filter((c) => !c.deleted)
       .map((c) => ({
         activity: c.activity,
-        activity_currency: this.toCurrency(c.activity, cache.currencyFormat),
+        activity_currency: this.toCurrency(
+          c.activity,
+          localBudget.currencyFormat,
+        ),
         balance: c.balance,
-        balance_currency: this.toCurrency(c.balance, cache.currencyFormat),
+        balance_currency: this.toCurrency(
+          c.balance,
+          localBudget.currencyFormat,
+        ),
         budgeted: c.budgeted,
-        budgeted_currency: this.toCurrency(c.budgeted, cache.currencyFormat),
+        budgeted_currency: this.toCurrency(
+          c.budgeted,
+          localBudget.currencyFormat,
+        ),
         category_group_id: c.category_group_id,
         category_group_name:
-          cache.categoryGroupNameById.get(c.category_group_id) ?? '',
+          localBudget.categoryGroupNameById.get(c.category_group_id) ?? '',
         goal_percentage_complete: c.goal_percentage_complete ?? null,
         goal_target: c.goal_target ?? null,
         goal_type: c.goal_type ?? null,
@@ -1189,23 +1397,26 @@ class YnabClient {
       activity: monthData.activity,
       activity_currency: this.toCurrency(
         monthData.activity,
-        cache.currencyFormat,
+        localBudget.currencyFormat,
       ),
       age_of_money: monthData.age_of_money ?? null,
       budgeted: monthData.budgeted,
       budgeted_currency: this.toCurrency(
         monthData.budgeted,
-        cache.currencyFormat,
+        localBudget.currencyFormat,
       ),
       categories,
       income: monthData.income,
-      income_currency: this.toCurrency(monthData.income, cache.currencyFormat),
+      income_currency: this.toCurrency(
+        monthData.income,
+        localBudget.currencyFormat,
+      ),
       month: monthData.month,
       note: monthData.note ?? null,
       to_be_budgeted: monthData.to_be_budgeted,
       to_be_budgeted_currency: this.toCurrency(
         monthData.to_be_budgeted,
-        cache.currencyFormat,
+        localBudget.currencyFormat,
       ),
     };
   }

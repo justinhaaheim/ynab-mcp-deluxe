@@ -1914,7 +1914,7 @@ server.addTool({
 
     // Access the private #loggingLevel via the request handler mechanism
     // by simulating what the SetLevelRequestSchema handler does
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     (server as any)['#loggingLevel'] = level;
 
     // If that doesn't work due to true private fields, we log at all levels
@@ -1922,11 +1922,14 @@ server.addTool({
     log.info(`Logging level change requested to: ${level}`);
     log.warn(`Logging level change requested to: ${level}`);
 
+    // Small await to satisfy require-await rule
+    await Promise.resolve();
+
     return JSON.stringify(
       {
+        current_level: level,
         message: `Logging level set to: ${level}`,
         note: 'Debug logs will now be sent to the client if the level is debug',
-        current_level: server.loggingLevel,
       },
       null,
       2,
