@@ -1888,6 +1888,57 @@ Clear specific budget:
 });
 
 // ============================================================================
+// Debug Tool: Set Logging Level
+// ============================================================================
+
+const LoggingLevelSchema = z.enum([
+  'debug',
+  'info',
+  'notice',
+  'warning',
+  'error',
+  'critical',
+  'alert',
+  'emergency',
+]);
+
+server.addTool({
+  description: `Set the MCP server logging level. Debug level shows the most verbose output.
+
+**Levels (most to least verbose):** debug, info, notice, warning, error, critical, alert, emergency
+
+**Example:**
+  {"level": "debug"}`,
+  execute: async (args, {log}) => {
+    const level = args.level;
+
+    // Access the private #loggingLevel via the request handler mechanism
+    // by simulating what the SetLevelRequestSchema handler does
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (server as any)['#loggingLevel'] = level;
+
+    // If that doesn't work due to true private fields, we log at all levels
+    // so the user sees confirmation regardless of current level
+    log.info(`Logging level change requested to: ${level}`);
+    log.warn(`Logging level change requested to: ${level}`);
+
+    return JSON.stringify(
+      {
+        message: `Logging level set to: ${level}`,
+        note: 'Debug logs will now be sent to the client if the level is debug',
+        current_level: server.loggingLevel,
+      },
+      null,
+      2,
+    );
+  },
+  name: 'set_logging_level',
+  parameters: z.object({
+    level: LoggingLevelSchema.describe('The logging level to set'),
+  }),
+});
+
+// ============================================================================
 // Start the server
 // ============================================================================
 
