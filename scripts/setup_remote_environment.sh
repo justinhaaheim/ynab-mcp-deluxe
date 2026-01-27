@@ -6,6 +6,8 @@ if [ "$CLAUDE_CODE_REMOTE" != "true" ]; then
 fi
 
 bun i
-bun install -g --trust @beads/bd
+
+# Install beads
+curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
 
 exit 0
