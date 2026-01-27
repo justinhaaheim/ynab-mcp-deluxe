@@ -193,6 +193,32 @@ server.addTool({
 - **Module System**: ESM throughout
 - **TypeScript**: Strict mode with all checks enabled
 
+## Issue Priority Guidelines
+
+This project uses beads (`bd`) for issue tracking. Priority levels:
+
+- **P0 (Critical)**: Reserved for truly urgent, broken, blocking issues. This project is in alpha - almost nothing should be P0.
+- **P1 (High)**: Essential MVP items that cannot be skipped. Core functionality needed for real-world use.
+- **P2 (Medium)**: Important but not critical. Nice improvements, better testing, workflow tools.
+- **P3 (Low)**: Future enhancements. May or may not be implemented.
+- **P4 (Backlog)**: Ideas to consider later. Not immediately actionable.
+
+**Don't inflate priorities.** Most items should be P2-P4. Reserve P0-P1 for genuinely essential work.
+
+## Development Practices
+
+### Debug Logging
+
+Add liberal debug logging throughout tool execution using FastMCP's context logger:
+
+```typescript
+log.debug('Resolving account selector', { selector: args.account });
+log.debug('Found account', { id: account.id, name: account.name });
+log.debug('Delta sync completed', { changesReceived: delta.transactions.length });
+```
+
+This provides observability during development and helps diagnose issues without cluttering production output.
+
 ## Important General Guidelines
 
 Always follow the important guidelines in @docs/prompts/IMPORTANT_GUIDELINES_INLINED.md
