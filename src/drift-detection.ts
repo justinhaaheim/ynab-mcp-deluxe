@@ -12,7 +12,7 @@
 import type {LocalBudget} from './types.js';
 import type {Diff} from 'deep-diff';
 
-import {diff} from 'deep-diff';
+import deepDiff from 'deep-diff';
 
 /**
  * Logger interface matching FastMCP's context log
@@ -262,7 +262,7 @@ export function checkForDrift(
   const truthData = prepareForComparison(truthBudget);
 
   // Perform deep comparison
-  const differences = diff(mergedData, truthData) ?? [];
+  const differences = deepDiff(mergedData, truthData) ?? [];
 
   return {
     differenceCount: differences.length,
