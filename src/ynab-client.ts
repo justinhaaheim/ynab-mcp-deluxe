@@ -28,6 +28,7 @@ import type {
 import {
   type AccountType,
   api as YnabApi,
+  type BudgetDetail,
   type BudgetSummary,
   type Category,
   type CategoryGroupWithCategories,
@@ -48,6 +49,7 @@ import {
   recordDriftCheck,
   shouldPerformDriftCheck,
 } from './drift-detection.js';
+import {saveDriftSnapshot, shouldSampleDrift} from './drift-snapshot.js';
 import {buildLocalBudget, mergeDelta} from './local-budget.js';
 import {createCombinedLogger, fileLogger} from './logger.js';
 import {persistSyncResponse} from './sync-history.js';
@@ -206,6 +208,8 @@ class YnabClient {
   private api: YnabApi | null = null;
   private budgets: BudgetSummary[] | null = null;
   private localBudgets = new Map<string, LocalBudget>();
+  /** Store previous full API responses for drift snapshot collection */
+  private previousBudgetDetails = new Map<string, BudgetDetail>();
   private lastUsedBudgetId: string | null = null;
   private syncProvider: SyncProvider | null = null;
 
@@ -302,8 +306,14 @@ class YnabClient {
   /**
    * Get a local budget, syncing with YNAB if needed.
    *
-   * This is the core method that manages the local budget replica.
-   * It syncs based on the sync policy (interval, needsSync flag, forceSync option).
+   * SYNC STRATEGY (Drift Collection Mode):
+   * - Always fetch full budget (guaranteed correct)
+   * - Also fetch delta and merge to build "merged" version for comparison
+   * - Run drift detection comparing merged vs full
+   * - If drift detected (at sample rate), save artifacts for later analysis
+   * - Return the full budget (source of truth)
+   *
+   * This approach unblocks development while passively collecting drift data.
    *
    * @param budgetId - The budget ID
    * @param options - Sync options (forceSync: 'full' | 'delta' | undefined)
@@ -319,11 +329,13 @@ class YnabClient {
     const log = createCombinedLogger(contextLog);
 
     const existingBudget = this.localBudgets.get(budgetId);
+    const previousBudgetDetail = this.previousBudgetDetails.get(budgetId);
     const syncDecision = this.determineSyncNeeded(existingBudget, options);
 
     log.debug('Sync decision', {
       budgetId,
       decision: syncDecision.type,
+      hasPreviousBudget: existingBudget !== undefined,
       reason: syncDecision.reason,
     });
 
@@ -339,189 +351,171 @@ class YnabClient {
     const syncProvider = this.getSyncProvider();
     const totalStartTime = performance.now();
 
-    if (syncDecision.type === 'full' || existingBudget === undefined) {
-      // Full sync
-      log.info('Performing full sync...', {
+    // If we have an existing budget, try delta sync first for drift collection
+    let mergedBudget: LocalBudget | null = null;
+    let deltaBudgetData: BudgetDetail | null = null;
+    let deltaServerKnowledge: number | null = null;
+
+    if (
+      existingBudget !== undefined &&
+      previousBudgetDetail !== undefined &&
+      isDriftDetectionEnabled() &&
+      shouldPerformDriftCheck()
+    ) {
+      // Fetch delta and merge for drift comparison
+      const previousServerKnowledge = existingBudget.serverKnowledge;
+
+      log.info('Fetching delta for drift collection...', {
         budgetId,
-        reason: syncDecision.reason,
+        previousServerKnowledge,
       });
 
-      const apiStartTime = performance.now();
-      const {budget, serverKnowledge} = await syncProvider.fullSync(budgetId);
-      const apiDurationMs = Math.round(performance.now() - apiStartTime);
+      try {
+        const deltaStartTime = performance.now();
+        const deltaResult = await syncProvider.deltaSync(
+          budgetId,
+          previousServerKnowledge,
+        );
+        deltaBudgetData = deltaResult.budget;
+        deltaServerKnowledge = deltaResult.serverKnowledge;
+        const deltaDurationMs = Math.round(performance.now() - deltaStartTime);
 
-      const mergeStartTime = performance.now();
-      const localBudget = buildLocalBudget(budgetId, budget, serverKnowledge);
-      const mergeDurationMs = Math.round(performance.now() - mergeStartTime);
+        // Analyze delta for logging
+        const deltaAnalysis = analyzeDeltaResponse(deltaBudgetData);
+        const knowledgeChanged =
+          deltaServerKnowledge !== previousServerKnowledge;
 
-      // Persist to sync history
-      const persistStartTime = performance.now();
-      await persistSyncResponse(
-        budgetId,
-        'full',
-        budget,
-        serverKnowledge,
-        null,
-        log,
-      );
-      const persistDurationMs = Math.round(
-        performance.now() - persistStartTime,
-      );
+        log.debug('Delta response for drift collection', {
+          deltaAnalysis,
+          deltaDurationMs,
+          knowledgeChanged,
+          serverKnowledge: {
+            new: deltaServerKnowledge,
+            previous: previousServerKnowledge,
+          },
+        });
 
-      const totalDurationMs = Math.round(performance.now() - totalStartTime);
+        // Merge delta into existing budget
+        const mergeStartTime = performance.now();
+        const mergeResult = mergeDelta(
+          existingBudget,
+          deltaBudgetData,
+          deltaServerKnowledge,
+        );
+        mergedBudget = mergeResult.localBudget;
+        const mergeDurationMs = Math.round(performance.now() - mergeStartTime);
 
-      log.info('Full sync completed', {
-        apiDurationMs,
-        budgetId,
-        counts: {
-          accounts: localBudget.accounts.length,
-          categories: localBudget.categories.length,
-          payees: localBudget.payees.length,
-          transactions: localBudget.transactions.length,
-        },
-        mergeDurationMs,
-        persistDurationMs,
-        serverKnowledge,
-        totalDurationMs,
-      });
-
-      this.localBudgets.set(budgetId, localBudget);
-      return localBudget;
+        log.debug('Delta merged for drift comparison', {
+          changesReceived: mergeResult.changesReceived,
+          mergeDurationMs,
+        });
+      } catch (error) {
+        log.warn('Delta fetch failed for drift collection, continuing', {
+          budgetId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
-    // Delta sync
-    log.info('Performing delta sync...', {
+    // Always fetch full budget (source of truth)
+    log.info('Performing full sync...', {
       budgetId,
-      previousServerKnowledge: existingBudget.serverKnowledge,
       reason: syncDecision.reason,
     });
 
-    const previousServerKnowledge = existingBudget.serverKnowledge;
-
     const apiStartTime = performance.now();
-    const {budget: deltaBudget, serverKnowledge: newServerKnowledge} =
-      await syncProvider.deltaSync(budgetId, previousServerKnowledge);
+    const {budget: fullBudgetData, serverKnowledge: fullServerKnowledge} =
+      await syncProvider.fullSync(budgetId);
     const apiDurationMs = Math.round(performance.now() - apiStartTime);
 
-    // Analyze what's in the delta response for validation logging
-    const deltaAnalysis = analyzeDeltaResponse(deltaBudget);
-    const knowledgeChanged = newServerKnowledge !== previousServerKnowledge;
-
-    log.debug('Delta response received', {
-      apiDurationMs,
-      deltaAnalysis,
-      knowledgeChanged,
-      serverKnowledge: {
-        new: newServerKnowledge,
-        previous: previousServerKnowledge,
-      },
-    });
-
-    // Log details about transactions if any were returned (most common delta)
-    if (deltaAnalysis.transactions.count > 0) {
-      log.info('Delta contains transaction changes', {
-        count: deltaAnalysis.transactions.count,
-        deletedCount: deltaAnalysis.transactions.deletedCount,
-        sampleIds: deltaAnalysis.transactions.sampleIds,
-      });
-    }
-
-    const mergeStartTime = performance.now();
-    const {localBudget, changesReceived} = mergeDelta(
-      existingBudget,
-      deltaBudget,
-      newServerKnowledge,
+    const buildStartTime = performance.now();
+    const localBudget = buildLocalBudget(
+      budgetId,
+      fullBudgetData,
+      fullServerKnowledge,
     );
-    const mergeDurationMs = Math.round(performance.now() - mergeStartTime);
+    const buildDurationMs = Math.round(performance.now() - buildStartTime);
 
     // Persist to sync history
     const persistStartTime = performance.now();
     await persistSyncResponse(
       budgetId,
-      'delta',
-      deltaBudget,
-      newServerKnowledge,
-      previousServerKnowledge,
+      'full',
+      fullBudgetData,
+      fullServerKnowledge,
+      null,
       log,
     );
     const persistDurationMs = Math.round(performance.now() - persistStartTime);
 
     const totalDurationMs = Math.round(performance.now() - totalStartTime);
 
-    log.info('Delta sync completed', {
+    log.info('Full sync completed', {
       apiDurationMs,
       budgetId,
-      changesReceived,
-      knowledgeChanged,
-      mergeDurationMs,
-      persistDurationMs,
-      serverKnowledge: {
-        new: newServerKnowledge,
-        previous: previousServerKnowledge,
+      buildDurationMs,
+      counts: {
+        accounts: localBudget.accounts.length,
+        categories: localBudget.categories.length,
+        payees: localBudget.payees.length,
+        transactions: localBudget.transactions.length,
       },
+      persistDurationMs,
+      serverKnowledge: fullServerKnowledge,
       totalDurationMs,
     });
 
-    // Store the merged budget
-    this.localBudgets.set(budgetId, localBudget);
+    // Run drift detection if we have a merged budget to compare
+    if (
+      mergedBudget !== null &&
+      deltaBudgetData !== null &&
+      deltaServerKnowledge !== null &&
+      previousBudgetDetail !== undefined
+    ) {
+      log.info('Running drift detection...', {budgetId});
 
-    // Perform drift detection if enabled and it's time for a check
-    if (isDriftDetectionEnabled() && shouldPerformDriftCheck()) {
-      log.info('Performing drift detection check...', {budgetId});
+      const compareStartTime = performance.now();
+      const driftResult = checkForDrift(mergedBudget, localBudget);
+      const compareDurationMs = Math.round(
+        performance.now() - compareStartTime,
+      );
 
-      try {
-        // Fetch full budget (without server_knowledge) as source of truth
-        const driftCheckStartTime = performance.now();
-        const {budget: truthBudgetData, serverKnowledge: truthServerKnowledge} =
-          await syncProvider.fullSync(budgetId);
-        const truthBudget = buildLocalBudget(
-          budgetId,
-          truthBudgetData,
-          truthServerKnowledge,
-        );
-        const driftCheckDurationMs = Math.round(
-          performance.now() - driftCheckStartTime,
-        );
+      logDriftCheckResult(driftResult, budgetId, log);
+      recordDriftCheck();
 
-        // Compare merged budget with truth
-        const compareStartTime = performance.now();
-        const driftResult = checkForDrift(localBudget, truthBudget);
-        const compareDurationMs = Math.round(
-          performance.now() - compareStartTime,
-        );
-        logDriftCheckResult(driftResult, budgetId, log);
-        recordDriftCheck();
+      log.debug('Drift check timing', {compareDurationMs});
 
-        log.debug('Drift check timing', {
-          compareDurationMs,
-          driftCheckDurationMs,
-          fetchDurationMs: driftCheckDurationMs - compareDurationMs,
-        });
-
-        // Self-heal if drift detected: replace local with truth
-        if (driftResult.hasDrift) {
-          this.localBudgets.set(budgetId, truthBudget);
-
-          // Persist the truth budget to sync history as well
-          await persistSyncResponse(
-            budgetId,
-            'full',
-            truthBudgetData,
-            truthServerKnowledge,
-            null,
+      // Save snapshot if drift detected and we're sampling
+      if (driftResult.hasDrift && shouldSampleDrift()) {
+        try {
+          await saveDriftSnapshot(
+            {
+              budgetId,
+              deltaResponse: deltaBudgetData,
+              driftResult,
+              fullResponse: fullBudgetData,
+              mergedBudget,
+              previousFullResponse: previousBudgetDetail,
+              serverKnowledge: {
+                afterDelta: deltaServerKnowledge,
+                afterFull: fullServerKnowledge,
+                previous: existingBudget?.serverKnowledge ?? 0,
+              },
+            },
             log,
           );
-
-          return truthBudget;
+        } catch (error) {
+          log.warn('Failed to save drift snapshot, continuing', {
+            budgetId,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
-      } catch (error) {
-        // Don't fail the sync if drift detection fails - just log and continue
-        log.warn('Drift detection failed, continuing with merged budget', {
-          budgetId,
-          error: error instanceof Error ? error.message : String(error),
-        });
       }
     }
+
+    // Store the full budget and response for next time
+    this.localBudgets.set(budgetId, localBudget);
+    this.previousBudgetDetails.set(budgetId, fullBudgetData);
 
     return localBudget;
   }
@@ -1751,6 +1745,7 @@ class YnabClient {
   clearLocalBudgets(): void {
     this.budgets = null;
     this.localBudgets.clear();
+    this.previousBudgetDetails.clear();
   }
 
   /**
