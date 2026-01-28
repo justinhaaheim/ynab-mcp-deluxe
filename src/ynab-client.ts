@@ -49,6 +49,7 @@ import {
   shouldPerformDriftCheck,
 } from './drift-detection.js';
 import {buildLocalBudget, mergeDelta} from './local-budget.js';
+import {fileLogger} from './logger.js';
 import {persistSyncResponse} from './sync-history.js';
 import {ApiSyncProvider} from './sync-providers.js';
 
@@ -330,6 +331,12 @@ class YnabClient {
     const existingBudget = this.localBudgets.get(budgetId);
     const syncDecision = this.determineSyncNeeded(existingBudget, options);
 
+    // Log to file for visibility when MCP client doesn't surface context logs
+    fileLogger.debug('Sync decision', {
+      budgetId,
+      decision: syncDecision.type,
+      reason: syncDecision.reason,
+    });
     log.debug('Sync decision', {
       budgetId,
       decision: syncDecision.type,
@@ -337,6 +344,11 @@ class YnabClient {
     });
 
     if (syncDecision.type === 'none' && existingBudget !== undefined) {
+      fileLogger.debug('Local budget is fresh, skipping sync', {
+        budgetId,
+        lastSyncedAt: existingBudget.lastSyncedAt.toISOString(),
+        serverKnowledge: existingBudget.serverKnowledge,
+      });
       log.debug('Local budget is fresh, skipping sync', {
         budgetId,
         lastSyncedAt: existingBudget.lastSyncedAt.toISOString(),
@@ -350,6 +362,10 @@ class YnabClient {
 
     if (syncDecision.type === 'full' || existingBudget === undefined) {
       // Full sync
+      fileLogger.info('Performing full sync...', {
+        budgetId,
+        reason: syncDecision.reason,
+      });
       log.info('Performing full sync...', {
         budgetId,
         reason: syncDecision.reason,
@@ -379,7 +395,7 @@ class YnabClient {
 
       const totalDurationMs = Math.round(performance.now() - totalStartTime);
 
-      log.info('Full sync completed', {
+      const fullSyncResult = {
         apiDurationMs,
         budgetId,
         counts: {
@@ -392,13 +408,20 @@ class YnabClient {
         persistDurationMs,
         serverKnowledge,
         totalDurationMs,
-      });
+      };
+      fileLogger.info('Full sync completed', fullSyncResult);
+      log.info('Full sync completed', fullSyncResult);
 
       this.localBudgets.set(budgetId, localBudget);
       return localBudget;
     }
 
     // Delta sync
+    fileLogger.info('Performing delta sync...', {
+      budgetId,
+      previousServerKnowledge: existingBudget.serverKnowledge,
+      reason: syncDecision.reason,
+    });
     log.info('Performing delta sync...', {
       budgetId,
       previousServerKnowledge: existingBudget.serverKnowledge,
@@ -416,7 +439,7 @@ class YnabClient {
     const deltaAnalysis = analyzeDeltaResponse(deltaBudget);
     const knowledgeChanged = newServerKnowledge !== previousServerKnowledge;
 
-    log.debug('Delta response received', {
+    const deltaResponseInfo = {
       apiDurationMs,
       deltaAnalysis,
       knowledgeChanged,
@@ -424,15 +447,19 @@ class YnabClient {
         new: newServerKnowledge,
         previous: previousServerKnowledge,
       },
-    });
+    };
+    fileLogger.debug('Delta response received', deltaResponseInfo);
+    log.debug('Delta response received', deltaResponseInfo);
 
     // Log details about transactions if any were returned (most common delta)
     if (deltaAnalysis.transactions.count > 0) {
-      log.info('Delta contains transaction changes', {
+      const txnChanges = {
         count: deltaAnalysis.transactions.count,
         deletedCount: deltaAnalysis.transactions.deletedCount,
         sampleIds: deltaAnalysis.transactions.sampleIds,
-      });
+      };
+      fileLogger.info('Delta contains transaction changes', txnChanges);
+      log.info('Delta contains transaction changes', txnChanges);
     }
 
     const mergeStartTime = performance.now();
@@ -457,7 +484,7 @@ class YnabClient {
 
     const totalDurationMs = Math.round(performance.now() - totalStartTime);
 
-    log.info('Delta sync completed', {
+    const deltaSyncResult = {
       apiDurationMs,
       budgetId,
       changesReceived,
@@ -469,13 +496,16 @@ class YnabClient {
         previous: previousServerKnowledge,
       },
       totalDurationMs,
-    });
+    };
+    fileLogger.info('Delta sync completed', deltaSyncResult);
+    log.info('Delta sync completed', deltaSyncResult);
 
     // Store the merged budget
     this.localBudgets.set(budgetId, localBudget);
 
     // Perform drift detection if enabled and it's time for a check
     if (isDriftDetectionEnabled() && shouldPerformDriftCheck()) {
+      fileLogger.info('Performing drift detection check...', {budgetId});
       log.info('Performing drift detection check...', {budgetId});
 
       try {
