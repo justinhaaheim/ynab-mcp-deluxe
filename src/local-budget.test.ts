@@ -332,6 +332,130 @@ describe('mergeMonthArray', () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.month).toBe('2026-02-01');
   });
+
+  it('should merge nested categories array when updating existing month', () => {
+    // Existing month has 3 categories
+    const existingCategories = [
+      createMockCategory({budgeted: 100000, id: 'cat-1', name: 'Rent'}),
+      createMockCategory({budgeted: 50000, id: 'cat-2', name: 'Groceries'}),
+      createMockCategory({budgeted: 20000, id: 'cat-3', name: 'Utilities'}),
+    ];
+    const existing = [
+      createMockMonth({
+        categories: existingCategories,
+        month: '2026-01-01',
+      }),
+    ];
+
+    // Delta only includes ONE changed category (cat-2 with updated budgeted)
+    const deltaCategories = [
+      createMockCategory({budgeted: 75000, id: 'cat-2', name: 'Groceries'}),
+    ];
+    const delta = [
+      createMockMonth({
+        budgeted: 600000, // Updated scalar field
+        categories: deltaCategories,
+        month: '2026-01-01',
+      }),
+    ];
+
+    const result = mergeMonthArray(existing, delta);
+
+    // Should have 1 month
+    expect(result).toHaveLength(1);
+    const mergedMonth = result[0];
+
+    // Scalar field should be updated from delta
+    expect(mergedMonth?.budgeted).toBe(600000);
+
+    // Should have all 3 categories (merged, not replaced)
+    expect(mergedMonth?.categories).toHaveLength(3);
+
+    // cat-1 should be preserved unchanged
+    const cat1 = mergedMonth?.categories.find((c) => c.id === 'cat-1');
+    expect(cat1?.budgeted).toBe(100000);
+
+    // cat-2 should be updated from delta
+    const cat2 = mergedMonth?.categories.find((c) => c.id === 'cat-2');
+    expect(cat2?.budgeted).toBe(75000);
+
+    // cat-3 should be preserved unchanged
+    const cat3 = mergedMonth?.categories.find((c) => c.id === 'cat-3');
+    expect(cat3?.budgeted).toBe(20000);
+  });
+
+  it('should handle deleted categories within merged month', () => {
+    const existingCategories = [
+      createMockCategory({id: 'cat-1', name: 'Rent'}),
+      createMockCategory({id: 'cat-2', name: 'Groceries'}),
+      createMockCategory({id: 'cat-3', name: 'Utilities'}),
+    ];
+    const existing = [
+      createMockMonth({
+        categories: existingCategories,
+        month: '2026-01-01',
+      }),
+    ];
+
+    // Delta marks cat-2 as deleted
+    const deltaCategories = [
+      createMockCategory({deleted: true, id: 'cat-2', name: 'Groceries'}),
+    ];
+    const delta = [
+      createMockMonth({
+        categories: deltaCategories,
+        month: '2026-01-01',
+      }),
+    ];
+
+    const result = mergeMonthArray(existing, delta);
+
+    expect(result).toHaveLength(1);
+    const mergedMonth = result[0];
+
+    // Should have 2 categories (cat-2 was deleted)
+    expect(mergedMonth?.categories).toHaveLength(2);
+    expect(mergedMonth?.categories.find((c) => c.id === 'cat-1')).toBeDefined();
+    expect(
+      mergedMonth?.categories.find((c) => c.id === 'cat-2'),
+    ).toBeUndefined();
+    expect(mergedMonth?.categories.find((c) => c.id === 'cat-3')).toBeDefined();
+  });
+
+  it('should add new categories to existing month', () => {
+    const existingCategories = [
+      createMockCategory({id: 'cat-1', name: 'Rent'}),
+    ];
+    const existing = [
+      createMockMonth({
+        categories: existingCategories,
+        month: '2026-01-01',
+      }),
+    ];
+
+    // Delta adds a new category
+    const deltaCategories = [
+      createMockCategory({id: 'cat-new', name: 'New Category'}),
+    ];
+    const delta = [
+      createMockMonth({
+        categories: deltaCategories,
+        month: '2026-01-01',
+      }),
+    ];
+
+    const result = mergeMonthArray(existing, delta);
+
+    expect(result).toHaveLength(1);
+    const mergedMonth = result[0];
+
+    // Should have 2 categories
+    expect(mergedMonth?.categories).toHaveLength(2);
+    expect(mergedMonth?.categories.find((c) => c.id === 'cat-1')).toBeDefined();
+    expect(
+      mergedMonth?.categories.find((c) => c.id === 'cat-new'),
+    ).toBeDefined();
+  });
 });
 
 // ============================================================================
