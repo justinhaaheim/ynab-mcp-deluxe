@@ -21,7 +21,11 @@ import type {
 } from './types.js';
 
 import {FastMCP, type SerializableValue} from 'fastmcp';
-import {AccountType} from 'ynab';
+import {
+  AccountType,
+  TransactionClearedStatus,
+  TransactionFlagColor,
+} from 'ynab';
 import {z} from 'zod';
 
 import {backupBudget} from './backup.js';
@@ -38,6 +42,24 @@ import {
 import {logger} from './logger.js';
 import {clearSyncHistory} from './sync-history.js';
 import {isReadOnlyMode, ynabClient} from './ynab-client.js';
+
+// SDK-derived Zod schemas (single source of truth for YNAB enums)
+const clearedStatusValues = Object.values(TransactionClearedStatus) as [
+  TransactionClearedStatus,
+  ...TransactionClearedStatus[],
+];
+const ClearedStatusSchema = z.enum(clearedStatusValues);
+
+// TransactionFlagColor includes "" (empty string) for "no flag" - exclude it for input schemas
+const flagColorInputValues = Object.values(TransactionFlagColor).filter(
+  (v): v is Exclude<TransactionFlagColor, ''> => v !== '',
+);
+const FlagColorInputSchema = z.enum(
+  flagColorInputValues as [
+    (typeof flagColorInputValues)[number],
+    ...(typeof flagColorInputValues)[number][],
+  ],
+);
 
 const server = new FastMCP({
   instructions: `MCP server for YNAB budget management.
@@ -757,14 +779,9 @@ Returns updated transactions and any failures with error messages.`,
             .describe('New amount in milliunits'),
           approved: z.boolean().optional().describe('Set approval status'),
           category_id: z.string().optional().describe('New category ID'),
-          cleared: z
-            .enum(['cleared', 'uncleared', 'reconciled'])
-            .optional()
-            .describe('Cleared status'),
+          cleared: ClearedStatusSchema.optional().describe('Cleared status'),
           date: z.string().optional().describe('New date (YYYY-MM-DD)'),
-          flag_color: z
-            .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple'])
-            .nullable()
+          flag_color: FlagColorInputSchema.nullable()
             .optional()
             .describe('Flag color (null to clear)'),
           id: z.string().describe('Transaction ID to update'),
@@ -1132,15 +1149,9 @@ const TransactionInputSchema = z.object({
     ),
   approved: z.boolean().optional().describe('Whether approved'),
   category: CategorySelectorSchema,
-  cleared: z
-    .enum(['cleared', 'uncleared', 'reconciled'])
-    .optional()
-    .describe('Cleared status'),
+  cleared: ClearedStatusSchema.optional().describe('Cleared status'),
   date: z.string().describe('Transaction date (YYYY-MM-DD)'),
-  flag_color: z
-    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple'])
-    .optional()
-    .describe('Flag color'),
+  flag_color: FlagColorInputSchema.optional().describe('Flag color'),
   memo: z.string().optional().describe('Memo/note'),
   payee: PayeeSelectorSchema,
   subtransactions: z
