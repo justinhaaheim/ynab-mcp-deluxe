@@ -30,9 +30,20 @@ The YNAB SDK `SubTransaction` interface **does** include `payee_name` and `categ
 
 ## Progress
 
-- [ ] Issue 5 - Extract enrichment helpers
-- [ ] Issue 1 - Derive types from SDK enums
-- [ ] Issue 4 - Subtransaction lookup maps
-- [ ] Issue 3 - Clarify SubTransaction.payee_name handling
-- [ ] Issue 6 - Deleted vs not-found error messages
-- [ ] Issue 2 - Tests
+- [x] Issue 5 - Extract enrichment helpers (commit 7105e5e)
+- [x] Issue 1 - Derive types from SDK enums (commit 15aef68)
+- [x] Issue 4 - Subtransaction lookup maps (commit 058c5c2)
+- [x] Issue 3 - Clarify SubTransaction.payee_name handling (commit e433f2a)
+- [x] Issue 6 - Deleted vs not-found error messages (commit 82084c3)
+- [x] Issue 2 - Tests (commit ef22efa)
+
+## Summary
+
+All 6 PR review issues have been addressed:
+
+1. **Types now derived from SDK** - `ClearedStatus`, `FlagColorInput`, and Zod schemas derived from `TransactionClearedStatus` and `TransactionFlagColor`
+2. **Tests added** - 14 new tests for enrichment and read methods (140 total tests passing)
+3. **SubTransaction.payee_name clarified** - Not dead code; defensive pattern for different API endpoints
+4. **O(1) subtransaction lookup** - Maps added for transaction→subtransactions joins
+5. **Helper functions extracted** - `resolvePayeeName()` and `resolveCategoryInfo()` DRY up enrichment
+6. **Error messages improved** - "not found" vs "has been deleted" distinguished
