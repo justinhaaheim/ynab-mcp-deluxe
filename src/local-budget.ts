@@ -64,6 +64,35 @@ export function rebuildLookupMaps(localBudget: LocalBudget): void {
   for (const payee of localBudget.payees) {
     localBudget.payeeById.set(payee.id, payee);
   }
+
+  // Subtransaction maps (for O(1) joins during enrichment)
+  localBudget.subtransactionsByTransactionId.clear();
+  for (const sub of localBudget.subtransactions) {
+    const existing = localBudget.subtransactionsByTransactionId.get(
+      sub.transaction_id,
+    );
+    if (existing !== undefined) {
+      existing.push(sub);
+    } else {
+      localBudget.subtransactionsByTransactionId.set(sub.transaction_id, [sub]);
+    }
+  }
+
+  localBudget.scheduledSubtransactionsByScheduledTransactionId.clear();
+  for (const sub of localBudget.scheduledSubtransactions) {
+    const existing =
+      localBudget.scheduledSubtransactionsByScheduledTransactionId.get(
+        sub.scheduled_transaction_id,
+      );
+    if (existing !== undefined) {
+      existing.push(sub);
+    } else {
+      localBudget.scheduledSubtransactionsByScheduledTransactionId.set(
+        sub.scheduled_transaction_id,
+        [sub],
+      );
+    }
+  }
 }
 
 /**
@@ -106,9 +135,11 @@ export function buildLocalBudget(
     payeeLocations: budget.payee_locations ?? [],
     payees: budget.payees ?? [],
     scheduledSubtransactions: budget.scheduled_subtransactions ?? [],
+    scheduledSubtransactionsByScheduledTransactionId: new Map(),
     scheduledTransactions: budget.scheduled_transactions ?? [],
     serverKnowledge,
     subtransactions: budget.subtransactions ?? [],
+    subtransactionsByTransactionId: new Map(),
     transactions: budget.transactions ?? [],
   };
 
@@ -285,6 +316,7 @@ export function mergeDelta(
       existing.scheduledSubtransactions,
       deltaBudget.scheduled_subtransactions ?? [],
     ),
+    scheduledSubtransactionsByScheduledTransactionId: new Map(),
     scheduledTransactions: mergeEntityArray<ScheduledTransactionSummary>(
       existing.scheduledTransactions,
       deltaBudget.scheduled_transactions ?? [],
@@ -294,6 +326,7 @@ export function mergeDelta(
       existing.subtransactions,
       deltaBudget.subtransactions ?? [],
     ),
+    subtransactionsByTransactionId: new Map(),
     transactions: mergeEntityArray<TransactionSummary>(
       existing.transactions,
       deltaBudget.transactions ?? [],

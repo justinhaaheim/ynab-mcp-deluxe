@@ -79,11 +79,18 @@ export interface LocalBudget {
   payeeLocations: PayeeLocation[];
   payees: Payee[];
   scheduledSubtransactions: ScheduledSubTransaction[];
+  // O(1) lookup: scheduled_transaction_id → scheduled subtransactions[]
+  scheduledSubtransactionsByScheduledTransactionId: Map<
+    string,
+    ScheduledSubTransaction[]
+  >;
 
   scheduledTransactions: ScheduledTransactionSummary[];
   // True after write operations
   serverKnowledge: number;
   subtransactions: SubTransaction[];
+  // O(1) lookup: transaction_id → subtransactions[]
+  subtransactionsByTransactionId: Map<string, SubTransaction[]>;
 
   transactions: TransactionSummary[];
 }

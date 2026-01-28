@@ -161,9 +161,11 @@ function createEmptyLocalBudget(): LocalBudget {
     payeeLocations: [],
     payees: [],
     scheduledSubtransactions: [],
+    scheduledSubtransactionsByScheduledTransactionId: new Map(),
     scheduledTransactions: [],
     serverKnowledge: 1000,
     subtransactions: [],
+    subtransactionsByTransactionId: new Map(),
     transactions: [],
   };
 }

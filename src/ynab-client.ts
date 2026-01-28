@@ -891,10 +891,10 @@ class YnabClient {
       localBudget,
     );
 
-    // Find subtransactions for this transaction
-    const subtransactions = localBudget.subtransactions.filter(
-      (sub) => sub.transaction_id === tx.id && sub.deleted !== true,
-    );
+    // Get subtransactions for this transaction (O(1) lookup)
+    const subtransactions = (
+      localBudget.subtransactionsByTransactionId.get(tx.id) ?? []
+    ).filter((sub) => sub.deleted !== true);
 
     // Enrich subtransactions with resolved names
     const enrichedSubtransactions: EnrichedSubTransaction[] =
@@ -1386,11 +1386,12 @@ class YnabClient {
           localBudget,
         );
 
-        // Find subtransactions for this scheduled transaction
-        const subtransactions = localBudget.scheduledSubtransactions.filter(
-          (sub) =>
-            sub.scheduled_transaction_id === txn.id && sub.deleted !== true,
-        );
+        // Get subtransactions for this scheduled transaction (O(1) lookup)
+        const subtransactions = (
+          localBudget.scheduledSubtransactionsByScheduledTransactionId.get(
+            txn.id,
+          ) ?? []
+        ).filter((sub) => sub.deleted !== true);
 
         return {
           account_id: txn.account_id,
