@@ -85,10 +85,26 @@ export function assertWriteAllowed(operation: string): void {
 // ============================================================================
 // Enrichment Helpers
 // ============================================================================
+//
+// These helpers handle name resolution for transactions and subtransactions.
+//
+// Why we check for existing names (not dead code):
+// - The YNAB SDK types for SubTransaction and ScheduledSubTransaction include
+//   optional payee_name and category_name fields
+// - The FULL BUDGET endpoint (/budgets/{id}) returns TransactionSummary which
+//   may NOT populate these fields (only IDs are guaranteed)
+// - INDIVIDUAL transaction endpoints DO populate these name fields
+// - We defensively check for existing names first, then fall back to ID lookup
+//   This ensures we work correctly regardless of which endpoint provided the data
+// ============================================================================
 
 /**
  * Resolve a payee name from a payee ID using the LocalBudget lookup maps.
  * Returns the existing name if already provided, otherwise looks up by ID.
+ *
+ * @param payeeId - The payee ID to look up
+ * @param existingName - Pre-populated name (may be present from individual tx endpoints)
+ * @param localBudget - LocalBudget with payee lookup maps
  */
 function resolvePayeeName(
   payeeId: string | null | undefined,
@@ -108,6 +124,10 @@ function resolvePayeeName(
 /**
  * Resolve category name and category group name from a category ID.
  * Returns the existing names if already provided, otherwise looks up by ID.
+ *
+ * @param categoryId - The category ID to look up
+ * @param existingName - Pre-populated name (may be present from individual tx endpoints)
+ * @param localBudget - LocalBudget with category lookup maps
  */
 function resolveCategoryInfo(
   categoryId: string | null | undefined,
