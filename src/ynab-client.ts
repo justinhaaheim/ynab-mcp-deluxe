@@ -1371,13 +1371,19 @@ class YnabClient {
   ): Promise<EnrichedTransaction> {
     const localBudget = await this.getLocalBudget(budgetId);
 
-    // Find the transaction in local budget
+    // Find the transaction in local budget (check all, including deleted)
     const transaction = localBudget.transactions.find(
-      (tx) => tx.id === transactionId && tx.deleted !== true,
+      (tx) => tx.id === transactionId,
     );
 
     if (transaction === undefined) {
       throw new Error(`Transaction not found with ID: '${transactionId}'.`);
+    }
+
+    if (transaction.deleted === true) {
+      throw new Error(
+        `Transaction '${transactionId}' has been deleted in YNAB.`,
+      );
     }
 
     return this.enrichTransactionSummary(transaction, localBudget);
@@ -1507,13 +1513,15 @@ class YnabClient {
   ): Promise<EnrichedBudgetMonthDetail> {
     const localBudget = await this.getLocalBudget(budgetId);
 
-    // Find the month in local budget
-    const monthData = localBudget.months.find(
-      (m) => m.month === month && m.deleted !== true,
-    );
+    // Find the month in local budget (check all, including deleted)
+    const monthData = localBudget.months.find((m) => m.month === month);
 
     if (monthData === undefined) {
       throw new Error(`Budget month not found: '${month}'.`);
+    }
+
+    if (monthData.deleted === true) {
+      throw new Error(`Budget month '${month}' has been deleted in YNAB.`);
     }
 
     const categories: EnrichedMonthCategory[] = monthData.categories
