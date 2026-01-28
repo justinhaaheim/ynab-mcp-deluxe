@@ -45,9 +45,11 @@ function createTestBudget(overrides: Partial<LocalBudget> = {}): LocalBudget {
     payeeLocations: [],
     payees: [],
     scheduledSubtransactions: [],
+    scheduledSubtransactionsByScheduledTransactionId: new Map(),
     scheduledTransactions: [],
     serverKnowledge: 100,
     subtransactions: [],
+    subtransactionsByTransactionId: new Map(),
     transactions: [],
     ...overrides,
   };
