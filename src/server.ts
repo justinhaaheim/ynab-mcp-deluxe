@@ -17,15 +17,18 @@ import type {
   PayeeSelector,
   TransactionSortBy,
   TransactionUpdate,
-  UpdateSubTransactionInput,
   UpdateTransactionsResult,
 } from './types.js';
 
 import {FastMCP, type SerializableValue} from 'fastmcp';
-import {AccountType} from 'ynab';
+import {
+  AccountType,
+  TransactionClearedStatus,
+  TransactionFlagColor,
+} from 'ynab';
 import {z} from 'zod';
 
-import {backupBudget, performAutoBackupIfNeeded} from './backup.js';
+import {backupBudget} from './backup.js';
 import {
   applyJMESPath,
   calculateCategoryDistribution,
@@ -36,12 +39,33 @@ import {
   sortTransactions,
   validateSelector,
 } from './helpers.js';
+import {logger} from './logger.js';
+import {clearSyncHistory} from './sync-history.js';
 import {isReadOnlyMode, ynabClient} from './ynab-client.js';
+
+// SDK-derived Zod schemas (single source of truth for YNAB enums)
+const clearedStatusValues = Object.values(TransactionClearedStatus) as [
+  TransactionClearedStatus,
+  ...TransactionClearedStatus[],
+];
+const ClearedStatusSchema = z.enum(clearedStatusValues);
+
+// TransactionFlagColor includes "" (empty string) for "no flag" - exclude it for input schemas
+const flagColorInputValues = Object.values(TransactionFlagColor).filter(
+  (v): v is Exclude<TransactionFlagColor, ''> => v !== '',
+);
+const FlagColorInputSchema = z.enum(
+  flagColorInputValues as [
+    (typeof flagColorInputValues)[number],
+    ...(typeof flagColorInputValues)[number][],
+  ],
+);
 
 const server = new FastMCP({
   instructions: `MCP server for YNAB budget management.
 
-Caching: Data (accounts, categories, payees) is cached to minimize API calls and respect YNAB's rate limit (200 requests/hour). Cache is automatically invalidated after write operations. Use force_refresh: true on any read tool to manually invalidate the cache and fetch fresh data.`,
+Caching: Data (accounts, categories, payees) is cached to minimize API calls and respect YNAB's rate limit (200 requests/hour). Cache is automatically invalidated after write operations. Use force_sync: true on any read tool to manually invalidate the cache and fetch fresh data.`,
+  logger,
   name: 'YNAB MCP Server',
   version: '1.0.0',
 });
@@ -66,19 +90,19 @@ const AccountSelectorSchema = z
   .optional()
   .describe('Filter to specific account');
 
-const ForceRefreshSchema = z
+const ForceSyncSchema = z
   .boolean()
   .default(false)
   .optional()
   .describe('Invalidate cache and fetch fresh data from YNAB API');
 
 // ============================================================================
-// Helper: Handle force_refresh and resolve budget
+// Helper: Handle force_sync and resolve budget
 // ============================================================================
 
-interface ForceRefreshArgs {
+interface ForceSyncArgs {
   budget?: BudgetSelector;
-  force_refresh?: boolean;
+  force_sync?: boolean;
 }
 
 interface ToolLog {
@@ -87,13 +111,13 @@ interface ToolLog {
 }
 
 /**
- * Validates budget selector, resolves budget ID, and handles force_refresh.
- * Call this at the start of read tools that support force_refresh.
+ * Validates budget selector, resolves budget ID, and handles force_sync.
+ * Call this at the start of read tools that support force_sync.
  *
  * @returns The resolved budget ID
  */
 async function prepareBudgetRequest(
-  args: ForceRefreshArgs,
+  args: ForceSyncArgs,
   log: ToolLog,
 ): Promise<string> {
   validateSelector(args.budget, 'Budget');
@@ -101,8 +125,8 @@ async function prepareBudgetRequest(
   const budgetId = await ynabClient.resolveBudgetId(args.budget);
   log.debug('Resolved budget', {budgetId});
 
-  if (args.force_refresh === true) {
-    log.info('Force refresh requested, invalidating cache', {budgetId});
+  if (args.force_sync === true) {
+    log.info('Force sync requested, invalidating cache', {budgetId});
     ynabClient.invalidateCache(budgetId);
   }
 
@@ -228,9 +252,6 @@ Just IDs and payees (minimal projection):
       const budgetId = await prepareBudgetRequest(args, log);
       validateSelector(args.account as AccountSelector | undefined, 'Account');
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       // Resolve account ID if provided
       let accountId: string | undefined;
       const hasAccountName =
@@ -312,7 +333,7 @@ Just IDs and payees (minimal projection):
   parameters: z.object({
     account: AccountSelectorSchema,
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     limit: z
       .number()
       .int()
@@ -402,9 +423,6 @@ Amazon transactions (limited):
     try {
       const budgetId = await prepareBudgetRequest(args, log);
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       // Get all transactions (we need categorized ones to learn patterns)
       let transactions = await ynabClient.getTransactions(budgetId, {});
       log.debug('Fetched all transactions', {count: transactions.length});
@@ -448,7 +466,7 @@ Amazon transactions (limited):
   name: 'get_payee_history',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     limit: z
       .number()
       .int()
@@ -510,9 +528,6 @@ Array of category groups, each containing:
     try {
       const budgetId = await prepareBudgetRequest(args, log);
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       const includeHidden = args.include_hidden ?? false;
 
       const {groups} = await ynabClient.getCategories(budgetId, includeHidden);
@@ -549,7 +564,7 @@ Array of category groups, each containing:
   name: 'get_categories',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     include_hidden: z
       .boolean()
       .default(false)
@@ -597,9 +612,6 @@ Just checking accounts:
     try {
       const budgetId = await prepareBudgetRequest(args, log);
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       const includeClosed = args.include_closed ?? false;
 
       const accounts = await ynabClient.getAccounts(budgetId, includeClosed);
@@ -620,7 +632,7 @@ Just checking accounts:
   name: 'get_accounts',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     include_closed: z
       .boolean()
       .default(false)
@@ -723,9 +735,6 @@ Returns updated transactions and any failures with error messages.`,
       );
       log.debug('Resolved budget', {budgetId});
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       const updates: TransactionUpdate[] = args.transactions.map((t) => ({
         account_id: t.account_id,
         amount: t.amount,
@@ -770,14 +779,9 @@ Returns updated transactions and any failures with error messages.`,
             .describe('New amount in milliunits'),
           approved: z.boolean().optional().describe('Set approval status'),
           category_id: z.string().optional().describe('New category ID'),
-          cleared: z
-            .enum(['cleared', 'uncleared', 'reconciled'])
-            .optional()
-            .describe('Cleared status'),
+          cleared: ClearedStatusSchema.optional().describe('Cleared status'),
           date: z.string().optional().describe('New date (YYYY-MM-DD)'),
-          flag_color: z
-            .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple'])
-            .nullable()
+          flag_color: FlagColorInputSchema.nullable()
             .optional()
             .describe('Flag color (null to clear)'),
           id: z.string().describe('Transaction ID to update'),
@@ -859,9 +863,6 @@ Search for a payee:
     try {
       const budgetId = await prepareBudgetRequest(args, log);
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       const payees = await ynabClient.getPayees(budgetId);
       log.debug('Fetched payees', {count: payees.length});
 
@@ -880,7 +881,7 @@ Search for a payee:
   name: 'get_payees',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     query: z.string().optional().describe('Optional JMESPath expression'),
   }),
 });
@@ -918,9 +919,6 @@ Monthly bills only:
     try {
       const budgetId = await prepareBudgetRequest(args, log);
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       const scheduled = await ynabClient.getScheduledTransactions(budgetId);
       log.debug('Fetched scheduled transactions', {count: scheduled.length});
 
@@ -942,7 +940,7 @@ Monthly bills only:
   name: 'get_scheduled_transactions',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     query: z.string().optional().describe('Optional JMESPath expression'),
   }),
 });
@@ -980,9 +978,6 @@ Recent months with positive income:
     try {
       const budgetId = await prepareBudgetRequest(args, log);
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       const months = await ynabClient.getBudgetMonths(budgetId);
       log.debug('Fetched budget months', {count: months.length});
 
@@ -1001,7 +996,7 @@ Recent months with positive income:
   name: 'get_months',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     query: z.string().optional().describe('Optional JMESPath expression'),
   }),
 });
@@ -1051,9 +1046,6 @@ Categories with goals:
     try {
       const budgetId = await prepareBudgetRequest(args, log);
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       // Determine month - use current if not specified
       let month = args.month;
       if (month === undefined || month === '' || month === 'current') {
@@ -1091,7 +1083,7 @@ Categories with goals:
   name: 'get_budget_summary',
   parameters: z.object({
     budget: BudgetSelectorSchema,
-    force_refresh: ForceRefreshSchema,
+    force_sync: ForceSyncSchema,
     include_hidden: z
       .boolean()
       .default(false)
@@ -1157,15 +1149,9 @@ const TransactionInputSchema = z.object({
     ),
   approved: z.boolean().optional().describe('Whether approved'),
   category: CategorySelectorSchema,
-  cleared: z
-    .enum(['cleared', 'uncleared', 'reconciled'])
-    .optional()
-    .describe('Cleared status'),
+  cleared: ClearedStatusSchema.optional().describe('Cleared status'),
   date: z.string().describe('Transaction date (YYYY-MM-DD)'),
-  flag_color: z
-    .enum(['red', 'orange', 'yellow', 'green', 'blue', 'purple'])
-    .optional()
-    .describe('Flag color'),
+  flag_color: FlagColorInputSchema.optional().describe('Flag color'),
   memo: z.string().optional().describe('Memo/note'),
   payee: PayeeSelectorSchema,
   subtransactions: z
@@ -1262,9 +1248,6 @@ Paycheck ($3000):
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
-
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
 
       // Resolve selectors for each transaction
       log.debug('Resolving selectors for transactions...');
@@ -1457,9 +1440,6 @@ transaction_id (required) - The ID of the transaction to delete
       );
       log.debug('Resolved budget', {budgetId});
 
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
-
       log.info('Deleting transaction', {transactionId: args.transaction_id});
       const result = await ynabClient.deleteTransaction(
         budgetId,
@@ -1517,9 +1497,6 @@ budget - Which budget (uses default if omitted)
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
-
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
 
       log.info('Importing transactions from linked accounts...');
       const result = await ynabClient.importTransactions(budgetId);
@@ -1602,9 +1579,6 @@ Fund emergency fund with $1000:
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
-
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
 
       // Resolve category
       const categoryId = await ynabClient.resolveCategoryId(
@@ -1717,9 +1691,6 @@ Create a savings account with $0:
         args.budget as BudgetSelector | undefined,
       );
       log.debug('Resolved budget', {budgetId});
-
-      // Auto backup if needed (first access or 24+ hours since last backup)
-      await performAutoBackupIfNeeded(budgetId, log);
 
       log.info('Creating account', {
         balance: args.balance,
@@ -1844,6 +1815,142 @@ Backup specific budget:
   name: 'backup_budget',
   parameters: z.object({
     budget: BudgetSelectorSchema,
+  }),
+});
+
+// ----------------------------------------------------------------------------
+// clear_sync_history - Clear local sync history files
+// ----------------------------------------------------------------------------
+
+server.addTool({
+  annotations: {
+    openWorldHint: false,
+    readOnlyHint: false, // Deletes local files
+    title: 'Clear Sync History',
+  },
+  description: `Clear local sync history files.
+
+The sync history contains complete budget snapshots used for delta synchronization. Use this tool to:
+- Free up disk space
+- Force a fresh full sync on next access
+- Clear potentially sensitive financial data from local storage
+
+**Parameters:**
+
+budget - Optional budget selector. If provided, only clears that budget's history.
+         If omitted, clears sync history for ALL budgets.
+
+**Returns:**
+- budgets_cleared: List of budget IDs cleared
+- files_deleted: Number of history files deleted
+- errors: Any non-fatal errors encountered
+
+**Location:** ~/.config/ynab-mcp-deluxe/sync-history/
+
+**Examples:**
+
+Clear all sync history:
+  {}
+
+Clear specific budget:
+  {"budget": {"id": "abc123-..."}}`,
+  execute: async (args, {log}) => {
+    log.debug('clear_sync_history called', {budget: args.budget});
+
+    try {
+      let budgetId: string | null = null;
+
+      if (args.budget !== undefined) {
+        validateSelector(args.budget as BudgetSelector | undefined, 'Budget');
+        budgetId = await ynabClient.resolveBudgetId(
+          args.budget as BudgetSelector | undefined,
+        );
+        log.debug('Resolved budget', {budgetId});
+      }
+
+      const startTime = performance.now();
+      // Cast log to satisfy ContextLog interface (FastMCP uses SerializableValue, we expect unknown)
+      const result = await clearSyncHistory(
+        budgetId,
+        log as Parameters<typeof clearSyncHistory>[1],
+      );
+      const durationMs = Math.round(performance.now() - startTime);
+
+      return JSON.stringify(
+        {
+          budgets_cleared: result.budgetsCleared,
+          duration_ms: durationMs,
+          errors: result.errors.length > 0 ? result.errors : undefined,
+          files_deleted: result.filesDeleted,
+          message:
+            result.budgetsCleared.length > 0
+              ? `Cleared sync history for ${result.budgetsCleared.length} budget(s), ${result.filesDeleted} files deleted`
+              : 'No sync history to clear',
+        },
+        null,
+        2,
+      );
+    } catch (error) {
+      return await createEnhancedErrorResponse(error, 'Clear sync history');
+    }
+  },
+  name: 'clear_sync_history',
+  parameters: z.object({
+    budget: BudgetSelectorSchema,
+  }),
+});
+
+// ============================================================================
+// Debug Tool: Set Logging Level
+// ============================================================================
+
+const LoggingLevelSchema = z.enum([
+  'debug',
+  'info',
+  'notice',
+  'warning',
+  'error',
+  'critical',
+  'alert',
+  'emergency',
+]);
+
+server.addTool({
+  description: `Set the MCP server logging level. Debug level shows the most verbose output.
+
+**Levels (most to least verbose):** debug, info, notice, warning, error, critical, alert, emergency
+
+**Example:**
+  {"level": "debug"}`,
+  execute: async (args, {log}) => {
+    const level = args.level;
+
+    // Access the private #loggingLevel via the request handler mechanism
+    // by simulating what the SetLevelRequestSchema handler does
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+    (server as any)['#loggingLevel'] = level;
+
+    // If that doesn't work due to true private fields, we log at all levels
+    // so the user sees confirmation regardless of current level
+    log.info(`Logging level change requested to: ${level}`);
+    log.warn(`Logging level change requested to: ${level}`);
+
+    // Small await to satisfy require-await rule
+    await Promise.resolve();
+
+    return JSON.stringify(
+      {
+        current_level: level,
+        message: `Logging level set to: ${level}`,
+        note: 'Debug logs will now be sent to the client if the level is debug',
+      },
+      null,
+      2,
+    );
+  },
+  name: 'set_logging_level',
+  parameters: z.object({
+    level: LoggingLevelSchema.describe('The logging level to set'),
   }),
 });
 

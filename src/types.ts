@@ -2,6 +2,211 @@
  * Type definitions for the YNAB MCP server
  */
 
+import type {
+  Account,
+  BudgetDetail,
+  Category,
+  CategoryGroup,
+  CurrencyFormat,
+  MonthDetail,
+  Payee,
+  PayeeLocation,
+  ScheduledSubTransaction,
+  ScheduledTransactionSummary,
+  SubTransaction,
+  TransactionClearedStatus,
+  TransactionFlagColor,
+  TransactionSummary,
+} from 'ynab';
+
+// ============================================================================
+// SDK-Derived Types (Single Source of Truth)
+// ============================================================================
+
+/**
+ * Cleared status derived from YNAB SDK.
+ * DO NOT hardcode these values - always use this type.
+ */
+export type ClearedStatus = TransactionClearedStatus;
+
+/**
+ * Flag color derived from YNAB SDK.
+ * The SDK includes "" (empty string) for "no flag". For input types
+ * (create/update), use FlagColorInput which excludes the empty string.
+ */
+export type FlagColor = TransactionFlagColor;
+
+/**
+ * Flag color for input operations (create/update) - excludes the empty
+ * string value that the SDK includes for "no flag".
+ */
+export type FlagColorInput = Exclude<TransactionFlagColor, ''>;
+
+// ============================================================================
+// Local Budget Types (for delta sync)
+// ============================================================================
+
+/**
+ * Local replica of a YNAB budget with O(1) lookup maps.
+ * This is NOT a cache - it's a local copy that we keep in sync with the server.
+ */
+export interface LocalBudget {
+  // O(1) lookup maps (rebuilt after each sync)
+  accountById: Map<string, Account>;
+  accountByName: Map<string, Account>;
+
+  // Budget data (from full budget endpoint - using SDK types directly)
+  accounts: Account[];
+  // Budget identity
+  budgetId: string;
+  budgetName: string;
+  categories: Category[];
+  // lowercase name → account
+  categoryById: Map<string, Category>;
+  categoryByName: Map<string, Category>;
+  // lowercase name → category
+  categoryGroupNameById: Map<string, string>;
+  categoryGroups: CategoryGroup[];
+  // For delta sync
+  // Budget settings
+  currencyFormat: CurrencyFormat | null;
+  // Sync metadata
+  lastSyncedAt: Date;
+
+  months: MonthDetail[];
+  needsSync: boolean;
+  payeeById: Map<string, Payee>;
+  payeeLocations: PayeeLocation[];
+  payees: Payee[];
+  scheduledSubtransactions: ScheduledSubTransaction[];
+  // O(1) lookup: scheduled_transaction_id → scheduled subtransactions[]
+  scheduledSubtransactionsByScheduledTransactionId: Map<
+    string,
+    ScheduledSubTransaction[]
+  >;
+
+  scheduledTransactions: ScheduledTransactionSummary[];
+  // True after write operations
+  serverKnowledge: number;
+  subtransactions: SubTransaction[];
+  // O(1) lookup: transaction_id → subtransactions[]
+  subtransactionsByTransactionId: Map<string, SubTransaction[]>;
+
+  transactions: TransactionSummary[];
+}
+
+/**
+ * Sync type for tracking what kind of sync was performed
+ */
+export type SyncType = 'full' | 'delta';
+
+/**
+ * Options for getLocalBudgetWithSync()
+ */
+export interface GetLocalBudgetOptions {
+  /**
+   * Force a sync operation:
+   * - 'full': Do a complete re-fetch (useful for sanity checks, suspected drift)
+   * - 'delta': Force delta sync even if interval hasn't passed
+   * - undefined: Let sync policy decide
+   */
+  forceSync?: 'full' | 'delta';
+}
+
+/**
+ * Sync history entry persisted to disk
+ */
+export interface SyncHistoryEntry {
+  /**
+   * Budget data from YNAB API response.
+   * For full sync: complete budget.
+   * For delta sync: only changed entities.
+   */
+  budget: BudgetDetail;
+
+  /**
+   * For delta syncs, the server_knowledge before the sync.
+   * Null for full syncs.
+   */
+  previousServerKnowledge: number | null;
+
+  /**
+   * The server_knowledge returned by this sync.
+   */
+  serverKnowledge: number;
+
+  /**
+   * Type of sync performed
+   */
+  syncType: SyncType;
+
+  /**
+   * When this sync was performed (ISO 8601 UTC)
+   */
+  syncedAt: string;
+}
+
+/**
+ * Performance timing data for sync operations
+ */
+export interface SyncPerformanceTiming {
+  apiDurationMs: number;
+  mergeDurationMs: number;
+  persistDurationMs: number;
+  rebuildMapsDurationMs: number;
+  totalDurationMs: number;
+}
+
+/**
+ * Result of a sync operation
+ */
+export interface SyncResult {
+  /** Change counts from delta sync (null for full sync) */
+  changesReceived: {
+    accounts: number;
+    categories: number;
+    months: number;
+    payees: number;
+    scheduledTransactions: number;
+    transactions: number;
+  } | null;
+
+  /** The updated local budget */
+  localBudget: LocalBudget;
+
+  /** Type of sync performed */
+  syncType: SyncType;
+
+  /** Performance timing data */
+  timing: SyncPerformanceTiming;
+}
+
+/**
+ * Interface for sync providers (API, Static JSON, etc.)
+ */
+export interface SyncProvider {
+  /**
+   * Perform a delta sync using last_knowledge_of_server.
+   * Returns the delta response from YNAB API.
+   */
+  deltaSync(
+    budgetId: string,
+    lastKnowledge: number,
+  ): Promise<{budget: BudgetDetail; serverKnowledge: number}>;
+
+  /**
+   * Perform a full sync (initial or forced).
+   * Returns the complete budget from YNAB API.
+   */
+  fullSync(
+    budgetId: string,
+  ): Promise<{budget: BudgetDetail; serverKnowledge: number}>;
+}
+
+// ============================================================================
+// Enriched Types (for MCP tool responses)
+// ============================================================================
+
 /**
  * Enriched subtransaction with resolved names
  */
@@ -37,7 +242,7 @@ export interface EnrichedTransaction {
   category_group_name: string | null;
   category_id: string | null;
   category_name: string | null;
-  cleared: 'cleared' | 'uncleared' | 'reconciled';
+  cleared: ClearedStatus;
   // Transaction details - ISO format "2025-01-15"
   date: string;
   flag_color: string | null;
@@ -217,11 +422,11 @@ export interface TransactionUpdate {
   /** Set category */
   category_id?: string;
   /** Set cleared status */
-  cleared?: 'cleared' | 'uncleared' | 'reconciled';
+  cleared?: ClearedStatus;
   /** Change transaction date (YYYY-MM-DD) */
   date?: string;
   /** Set flag color (null to clear) */
-  flag_color?: 'blue' | 'green' | 'orange' | 'purple' | 'red' | 'yellow' | null;
+  flag_color?: FlagColorInput | null;
   /** Transaction ID (required) */
   id: string;
   /** Set memo text */
@@ -375,9 +580,9 @@ export interface CreateTransactionInput {
   amount: number;
   approved?: boolean;
   category_id?: string;
-  cleared?: 'cleared' | 'uncleared' | 'reconciled';
+  cleared?: ClearedStatus;
   date: string;
-  flag_color?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple';
+  flag_color?: FlagColorInput;
   memo?: string;
   payee_id?: string;
   payee_name?: string;

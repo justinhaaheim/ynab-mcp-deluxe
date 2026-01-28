@@ -17,24 +17,43 @@ import type {
   EnrichedScheduledTransaction,
   EnrichedSubTransaction,
   EnrichedTransaction,
+  GetLocalBudgetOptions,
+  LocalBudget,
   PayeeSelector,
+  SyncProvider,
+  SyncType,
   TransactionUpdate,
 } from './types.js';
 
 import {
-  type Account,
   type AccountType,
   api as YnabApi,
+  type BudgetDetail,
   type BudgetSummary,
   type Category,
   type CategoryGroupWithCategories,
   type CurrencyFormat,
-  type Payee,
+  type SubTransaction,
   TransactionClearedStatus,
   type TransactionDetail,
   type TransactionFlagColor,
+  type TransactionSummary,
   utils,
 } from 'ynab';
+
+import {
+  checkForDrift,
+  isAlwaysFullSyncEnabled,
+  isDriftDetectionEnabled,
+  logDriftCheckResult,
+  recordDriftCheck,
+  shouldPerformDriftCheck,
+} from './drift-detection.js';
+import {saveDriftSnapshot, shouldSampleDrift} from './drift-snapshot.js';
+import {buildLocalBudget, mergeDelta} from './local-budget.js';
+import {createCombinedLogger, fileLogger} from './logger.js';
+import {persistSyncResponse} from './sync-history.js';
+import {ApiSyncProvider} from './sync-providers.js';
 
 // ============================================================================
 // Read-Only Mode Support
@@ -61,30 +80,222 @@ export function assertWriteAllowed(operation: string): void {
   }
 }
 
+// ============================================================================
+// Sync Configuration
+// ============================================================================
+// Enrichment Helpers
+// ============================================================================
+//
+// These helpers handle name resolution for transactions and subtransactions.
+//
+// Why we check for existing names (not dead code):
+// - The YNAB SDK types for SubTransaction and ScheduledSubTransaction include
+//   optional payee_name and category_name fields
+// - The FULL BUDGET endpoint (/budgets/{id}) returns TransactionSummary which
+//   may NOT populate these fields (only IDs are guaranteed)
+// - INDIVIDUAL transaction endpoints DO populate these name fields
+// - We defensively check for existing names first, then fall back to ID lookup
+//   This ensures we work correctly regardless of which endpoint provided the data
+// ============================================================================
+
 /**
- * Cached data for a budget
+ * Resolve a payee name from a payee ID using the LocalBudget lookup maps.
+ * Returns the existing name if already provided, otherwise looks up by ID.
+ *
+ * @param payeeId - The payee ID to look up
+ * @param existingName - Pre-populated name (may be present from individual tx endpoints)
+ * @param localBudget - LocalBudget with payee lookup maps
  */
-interface BudgetCache {
-  accountById: Map<string, Account>;
-  accountByName: Map<string, Account>;
-  accounts: Account[];
-  categories: Category[];
-  categoryById: Map<string, Category>;
-  categoryGroupNameById: Map<string, string>;
-  categoryGroups: CategoryGroupWithCategories[];
-  currencyFormat: CurrencyFormat | null;
-  payeeById: Map<string, Payee>;
-  payees: Payee[];
+function resolvePayeeName(
+  payeeId: string | null | undefined,
+  existingName: string | null | undefined,
+  localBudget: LocalBudget,
+): string | null {
+  if (
+    existingName !== undefined &&
+    existingName !== null &&
+    existingName !== ''
+  )
+    return existingName;
+  if (payeeId === undefined || payeeId === null) return null;
+  return localBudget.payeeById.get(payeeId)?.name ?? null;
 }
 
 /**
- * YNAB client with caching
+ * Resolve category name and category group name from a category ID.
+ * Returns the existing names if already provided, otherwise looks up by ID.
+ *
+ * @param categoryId - The category ID to look up
+ * @param existingName - Pre-populated name (may be present from individual tx endpoints)
+ * @param localBudget - LocalBudget with category lookup maps
+ */
+function resolveCategoryInfo(
+  categoryId: string | null | undefined,
+  existingName: string | null | undefined,
+  localBudget: LocalBudget,
+): {categoryGroupName: string | null; categoryName: string | null} {
+  if (
+    existingName !== undefined &&
+    existingName !== null &&
+    existingName !== ''
+  ) {
+    // We have the name but still need the group name from lookup
+    const category =
+      categoryId !== undefined && categoryId !== null
+        ? localBudget.categoryById.get(categoryId)
+        : undefined;
+    const categoryGroupName =
+      category !== undefined
+        ? (localBudget.categoryGroupNameById.get(category.category_group_id) ??
+          null)
+        : null;
+    return {categoryGroupName, categoryName: existingName};
+  }
+
+  if (categoryId === undefined || categoryId === null) {
+    return {categoryGroupName: null, categoryName: null};
+  }
+
+  const category = localBudget.categoryById.get(categoryId);
+  if (category === undefined) {
+    return {categoryGroupName: null, categoryName: null};
+  }
+
+  const categoryGroupName =
+    localBudget.categoryGroupNameById.get(category.category_group_id) ?? null;
+  return {categoryGroupName, categoryName: category.name};
+}
+
+// ============================================================================
+
+/**
+ * Default sync interval in seconds (10 minutes)
+ */
+const DEFAULT_SYNC_INTERVAL_SECONDS = 600;
+
+/**
+ * Get the configured sync interval in milliseconds.
+ * Configured via YNAB_SYNC_INTERVAL_SECONDS environment variable.
+ * Default: 600 seconds (10 minutes)
+ * Set to 0 to always sync before every operation.
+ */
+export function getSyncIntervalMs(): number {
+  const value = process.env['YNAB_SYNC_INTERVAL_SECONDS'];
+  if (value === undefined || value === '') {
+    return DEFAULT_SYNC_INTERVAL_SECONDS * 1000;
+  }
+
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed < 0) {
+    // Invalid value, use default
+    return DEFAULT_SYNC_INTERVAL_SECONDS * 1000;
+  }
+
+  return parsed * 1000;
+}
+
+/**
+ * Logger interface matching FastMCP's context log
+ */
+interface ContextLog {
+  debug: (message: string, data?: unknown) => void;
+  error: (message: string, data?: unknown) => void;
+  info: (message: string, data?: unknown) => void;
+  warn: (message: string, data?: unknown) => void;
+}
+
+/**
+ * Sync decision with reason for logging
+ */
+interface SyncDecision {
+  reason: string;
+  type: SyncType | 'none';
+}
+
+/**
+ * Analyze a delta response to provide detailed logging info.
+ * Counts items, deletions, and provides sample IDs.
+ */
+interface DeltaAnalysis {
+  accounts: EntityAnalysis;
+  categories: EntityAnalysis;
+  months: EntityAnalysis;
+  payees: EntityAnalysis;
+  scheduledTransactions: EntityAnalysis;
+  transactions: EntityAnalysis;
+}
+
+interface EntityAnalysis {
+  count: number;
+  deletedCount: number;
+  sampleIds: string[];
+}
+
+function analyzeEntityArray<T extends {deleted?: boolean; id: string}>(
+  items: T[] | undefined,
+): EntityAnalysis {
+  if (items === undefined || items.length === 0) {
+    return {count: 0, deletedCount: 0, sampleIds: []};
+  }
+
+  const deletedCount = items.filter((item) => item.deleted === true).length;
+  const sampleIds = items.slice(0, 3).map((item) => item.id);
+
+  return {
+    count: items.length,
+    deletedCount,
+    sampleIds,
+  };
+}
+
+function analyzeDeltaResponse(deltaBudget: {
+  accounts?: {deleted?: boolean; id: string}[];
+  categories?: {deleted?: boolean; id: string}[];
+  months?: {deleted?: boolean; month: string}[];
+  payees?: {deleted?: boolean; id: string}[];
+  scheduled_transactions?: {deleted?: boolean; id: string}[];
+  transactions?: {deleted?: boolean; id: string}[];
+}): DeltaAnalysis {
+  // Helper for months which use 'month' instead of 'id'
+  const analyzeMonths = (
+    items: {deleted?: boolean; month: string}[] | undefined,
+  ): EntityAnalysis => {
+    if (items === undefined || items.length === 0) {
+      return {count: 0, deletedCount: 0, sampleIds: []};
+    }
+    const deletedCount = items.filter((item) => item.deleted === true).length;
+    const sampleIds = items.slice(0, 3).map((item) => item.month);
+    return {count: items.length, deletedCount, sampleIds};
+  };
+
+  return {
+    accounts: analyzeEntityArray(deltaBudget.accounts),
+    categories: analyzeEntityArray(deltaBudget.categories),
+    months: analyzeMonths(deltaBudget.months),
+    payees: analyzeEntityArray(deltaBudget.payees),
+    scheduledTransactions: analyzeEntityArray(
+      deltaBudget.scheduled_transactions,
+    ),
+    transactions: analyzeEntityArray(deltaBudget.transactions),
+  };
+}
+
+/**
+ * Default logger when no context is available - logs to file only.
+ */
+const defaultLog: ContextLog = fileLogger;
+
+/**
+ * YNAB client with local budget sync
  */
 class YnabClient {
   private api: YnabApi | null = null;
   private budgets: BudgetSummary[] | null = null;
-  private budgetCaches = new Map<string, BudgetCache>();
+  private localBudgets = new Map<string, LocalBudget>();
+  /** Store previous full API responses for drift snapshot collection */
+  private previousBudgetDetails = new Map<string, BudgetDetail>();
   private lastUsedBudgetId: string | null = null;
+  private syncProvider: SyncProvider | null = null;
 
   /**
    * Get the YNAB API instance, creating it if necessary
@@ -100,6 +311,308 @@ class YnabClient {
       this.api = new YnabApi(token);
     }
     return this.api;
+  }
+
+  /**
+   * Get the sync provider, creating it if necessary
+   */
+  private getSyncProvider(): SyncProvider {
+    if (this.syncProvider === null) {
+      const token = process.env['YNAB_ACCESS_TOKEN'];
+      if (token === undefined || token === '') {
+        throw new Error(
+          'YNAB authentication failed. Check that YNAB_ACCESS_TOKEN environment variable is set.',
+        );
+      }
+      this.syncProvider = new ApiSyncProvider(token);
+    }
+    return this.syncProvider;
+  }
+
+  /**
+   * Determine what kind of sync is needed based on policy.
+   * Returns both the sync type and the reason for logging.
+   */
+  private determineSyncNeeded(
+    localBudget: LocalBudget | undefined,
+    options: GetLocalBudgetOptions,
+  ): SyncDecision {
+    // Force full sync requested
+    if (options.forceSync === 'full') {
+      return {reason: 'forceSync: full requested', type: 'full'};
+    }
+
+    // No local budget yet - need initial full sync
+    if (localBudget === undefined) {
+      return {reason: 'no local budget exists (initial sync)', type: 'full'};
+    }
+
+    // "Always full sync" mode - skip delta optimization entirely
+    // This is a valid production strategy if delta sync proves unreliable
+    if (isAlwaysFullSyncEnabled()) {
+      return {reason: 'YNAB_ALWAYS_FULL_SYNC enabled', type: 'full'};
+    }
+
+    // Force delta sync requested
+    if (options.forceSync === 'delta') {
+      return {reason: 'forceSync: delta requested', type: 'delta'};
+    }
+
+    // Write happened - need to sync
+    if (localBudget.needsSync) {
+      return {
+        reason: 'needsSync flag set (write operation occurred)',
+        type: 'delta',
+      };
+    }
+
+    // Check interval
+    const elapsed = Date.now() - localBudget.lastSyncedAt.getTime();
+    const intervalMs = getSyncIntervalMs();
+    if (elapsed >= intervalMs) {
+      const elapsedSeconds = Math.round(elapsed / 1000);
+      const intervalSeconds = Math.round(intervalMs / 1000);
+      return {
+        reason: `sync interval passed (${elapsedSeconds}s elapsed, interval: ${intervalSeconds}s)`,
+        type: 'delta',
+      };
+    }
+
+    // Local budget is fresh enough
+    const remainingMs = intervalMs - elapsed;
+    const remainingSeconds = Math.round(remainingMs / 1000);
+    return {
+      reason: `local budget is fresh (${remainingSeconds}s until next sync)`,
+      type: 'none',
+    };
+  }
+
+  /**
+   * Get a local budget, syncing with YNAB if needed.
+   *
+   * SYNC STRATEGY (Drift Collection Mode):
+   * - Always fetch full budget (guaranteed correct)
+   * - Also fetch delta and merge to build "merged" version for comparison
+   * - Run drift detection comparing merged vs full
+   * - If drift detected (at sample rate), save artifacts for later analysis
+   * - Return the full budget (source of truth)
+   *
+   * This approach unblocks development while passively collecting drift data.
+   *
+   * @param budgetId - The budget ID
+   * @param options - Sync options (forceSync: 'full' | 'delta' | undefined)
+   * @param log - Logger for debug output
+   * @returns The LocalBudget
+   */
+  async getLocalBudgetWithSync(
+    budgetId: string,
+    options: GetLocalBudgetOptions = {},
+    contextLog: ContextLog = defaultLog,
+  ): Promise<LocalBudget> {
+    // Create combined logger that writes to both file and context
+    const log = createCombinedLogger(contextLog);
+
+    const existingBudget = this.localBudgets.get(budgetId);
+    const previousBudgetDetail = this.previousBudgetDetails.get(budgetId);
+    const syncDecision = this.determineSyncNeeded(existingBudget, options);
+
+    log.debug('Sync decision', {
+      budgetId,
+      decision: syncDecision.type,
+      hasPreviousBudget: existingBudget !== undefined,
+      reason: syncDecision.reason,
+    });
+
+    if (syncDecision.type === 'none' && existingBudget !== undefined) {
+      log.debug('Local budget is fresh, skipping sync', {
+        budgetId,
+        lastSyncedAt: existingBudget.lastSyncedAt.toISOString(),
+        serverKnowledge: existingBudget.serverKnowledge,
+      });
+      return existingBudget;
+    }
+
+    const syncProvider = this.getSyncProvider();
+    const totalStartTime = performance.now();
+
+    // If we have an existing budget, try delta sync first for drift collection
+    let mergedBudget: LocalBudget | null = null;
+    let deltaBudgetData: BudgetDetail | null = null;
+    let deltaServerKnowledge: number | null = null;
+
+    if (
+      existingBudget !== undefined &&
+      previousBudgetDetail !== undefined &&
+      isDriftDetectionEnabled() &&
+      shouldPerformDriftCheck()
+    ) {
+      // Fetch delta and merge for drift comparison
+      const previousServerKnowledge = existingBudget.serverKnowledge;
+
+      log.info('Fetching delta for drift collection...', {
+        budgetId,
+        previousServerKnowledge,
+      });
+
+      try {
+        const deltaStartTime = performance.now();
+        const deltaResult = await syncProvider.deltaSync(
+          budgetId,
+          previousServerKnowledge,
+        );
+        deltaBudgetData = deltaResult.budget;
+        deltaServerKnowledge = deltaResult.serverKnowledge;
+        const deltaDurationMs = Math.round(performance.now() - deltaStartTime);
+
+        // Analyze delta for logging
+        const deltaAnalysis = analyzeDeltaResponse(deltaBudgetData);
+        const knowledgeChanged =
+          deltaServerKnowledge !== previousServerKnowledge;
+
+        log.debug('Delta response for drift collection', {
+          deltaAnalysis,
+          deltaDurationMs,
+          knowledgeChanged,
+          serverKnowledge: {
+            new: deltaServerKnowledge,
+            previous: previousServerKnowledge,
+          },
+        });
+
+        // Merge delta into existing budget
+        const mergeStartTime = performance.now();
+        const mergeResult = mergeDelta(
+          existingBudget,
+          deltaBudgetData,
+          deltaServerKnowledge,
+        );
+        mergedBudget = mergeResult.localBudget;
+        const mergeDurationMs = Math.round(performance.now() - mergeStartTime);
+
+        log.debug('Delta merged for drift comparison', {
+          changesReceived: mergeResult.changesReceived,
+          mergeDurationMs,
+        });
+      } catch (error) {
+        log.warn('Delta fetch failed for drift collection, continuing', {
+          budgetId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    // Always fetch full budget (source of truth)
+    log.info('Performing full sync...', {
+      budgetId,
+      reason: syncDecision.reason,
+    });
+
+    const apiStartTime = performance.now();
+    const {budget: fullBudgetData, serverKnowledge: fullServerKnowledge} =
+      await syncProvider.fullSync(budgetId);
+    const apiDurationMs = Math.round(performance.now() - apiStartTime);
+
+    const buildStartTime = performance.now();
+    const localBudget = buildLocalBudget(
+      budgetId,
+      fullBudgetData,
+      fullServerKnowledge,
+    );
+    const buildDurationMs = Math.round(performance.now() - buildStartTime);
+
+    // Persist to sync history
+    const persistStartTime = performance.now();
+    await persistSyncResponse(
+      budgetId,
+      'full',
+      fullBudgetData,
+      fullServerKnowledge,
+      null,
+      log,
+    );
+    const persistDurationMs = Math.round(performance.now() - persistStartTime);
+
+    const totalDurationMs = Math.round(performance.now() - totalStartTime);
+
+    log.info('Full sync completed', {
+      apiDurationMs,
+      budgetId,
+      buildDurationMs,
+      counts: {
+        accounts: localBudget.accounts.length,
+        categories: localBudget.categories.length,
+        payees: localBudget.payees.length,
+        transactions: localBudget.transactions.length,
+      },
+      persistDurationMs,
+      serverKnowledge: fullServerKnowledge,
+      totalDurationMs,
+    });
+
+    // Run drift detection if we have a merged budget to compare
+    if (
+      mergedBudget !== null &&
+      deltaBudgetData !== null &&
+      deltaServerKnowledge !== null &&
+      previousBudgetDetail !== undefined
+    ) {
+      log.info('Running drift detection...', {budgetId});
+
+      const compareStartTime = performance.now();
+      const driftResult = checkForDrift(mergedBudget, localBudget);
+      const compareDurationMs = Math.round(
+        performance.now() - compareStartTime,
+      );
+
+      logDriftCheckResult(driftResult, budgetId, log);
+      recordDriftCheck();
+
+      log.debug('Drift check timing', {compareDurationMs});
+
+      // Save snapshot if drift detected and we're sampling
+      if (driftResult.hasDrift && shouldSampleDrift()) {
+        try {
+          await saveDriftSnapshot(
+            {
+              budgetId,
+              deltaResponse: deltaBudgetData,
+              driftResult,
+              fullResponse: fullBudgetData,
+              mergedBudget,
+              previousFullResponse: previousBudgetDetail,
+              serverKnowledge: {
+                afterDelta: deltaServerKnowledge,
+                afterFull: fullServerKnowledge,
+                previous: existingBudget?.serverKnowledge ?? 0,
+              },
+            },
+            log,
+          );
+        } catch (error) {
+          log.warn('Failed to save drift snapshot, continuing', {
+            budgetId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+
+    // Store the full budget and response for next time
+    this.localBudgets.set(budgetId, localBudget);
+    this.previousBudgetDetails.set(budgetId, fullBudgetData);
+
+    return localBudget;
+  }
+
+  /**
+   * Mark a budget as needing sync (called after write operations).
+   * The next read operation will trigger a delta sync.
+   */
+  markNeedsSync(budgetId: string): void {
+    const localBudget = this.localBudgets.get(budgetId);
+    if (localBudget !== undefined) {
+      localBudget.needsSync = true;
+    }
   }
 
   /**
@@ -256,73 +769,38 @@ class YnabClient {
   }
 
   /**
-   * Get or create the cache for a budget
+   * Get the local budget for internal use.
+   * This is a convenience wrapper around getLocalBudgetWithSync() for methods
+   * that don't have access to a logger context.
    */
-  private async getBudgetCache(budgetId: string): Promise<BudgetCache> {
-    const existingCache = this.budgetCaches.get(budgetId);
-    if (existingCache !== undefined) {
-      return existingCache;
-    }
+  private async getLocalBudget(budgetId: string): Promise<LocalBudget> {
+    return await this.getLocalBudgetWithSync(budgetId, {}, defaultLog);
+  }
 
-    // Fetch all necessary data in parallel
-    const api = this.getApi();
-    const [
-      accountsResponse,
-      categoriesResponse,
-      payeesResponse,
-      budgetResponse,
-    ] = await Promise.all([
-      api.accounts.getAccounts(budgetId),
-      api.categories.getCategories(budgetId),
-      api.payees.getPayees(budgetId),
-      api.budgets.getBudgetById(budgetId),
-    ]);
-
-    const accounts = accountsResponse.data.accounts;
-    const categoryGroups = categoriesResponse.data.category_groups;
-    const payees = payeesResponse.data.payees;
-    const currencyFormat = budgetResponse.data.budget.currency_format ?? null;
-
-    // Build lookup maps
-    const accountById = new Map<string, Account>();
-    const accountByName = new Map<string, Account>();
-    for (const account of accounts) {
-      accountById.set(account.id, account);
-      accountByName.set(account.name.toLowerCase(), account);
-    }
-
-    const categoryById = new Map<string, Category>();
-    const categoryGroupNameById = new Map<string, string>();
-    const categories: Category[] = [];
-
-    for (const group of categoryGroups) {
-      categoryGroupNameById.set(group.id, group.name);
-      for (const category of group.categories) {
-        categoryById.set(category.id, category);
-        categories.push(category);
+  /**
+   * Build CategoryGroupWithCategories array from LocalBudget data.
+   * The full budget endpoint returns categories and groups separately,
+   * so we need to join them for compatibility with some existing methods.
+   */
+  private buildCategoryGroupsWithCategories(
+    localBudget: LocalBudget,
+  ): CategoryGroupWithCategories[] {
+    // Group categories by their category_group_id
+    const categoriesByGroupId = new Map<string, Category[]>();
+    for (const category of localBudget.categories) {
+      const existing = categoriesByGroupId.get(category.category_group_id);
+      if (existing !== undefined) {
+        existing.push(category);
+      } else {
+        categoriesByGroupId.set(category.category_group_id, [category]);
       }
     }
 
-    const payeeById = new Map<string, Payee>();
-    for (const payee of payees) {
-      payeeById.set(payee.id, payee);
-    }
-
-    const cache: BudgetCache = {
-      accountById,
-      accountByName,
-      accounts,
-      categories,
-      categoryById,
-      categoryGroupNameById,
-      categoryGroups,
-      currencyFormat,
-      payeeById,
-      payees,
-    };
-
-    this.budgetCaches.set(budgetId, cache);
-    return cache;
+    // Build CategoryGroupWithCategories array
+    return localBudget.categoryGroups.map((group) => ({
+      ...group,
+      categories: categoriesByGroupId.get(group.id) ?? [],
+    }));
   }
 
   /**
@@ -337,45 +815,47 @@ class YnabClient {
   }
 
   /**
-   * Enrich a transaction with resolved names
+   * Enrich a transaction with resolved names.
+   * Used for TransactionDetail (from individual transaction endpoints),
+   * which already has payee_name, category_name, account_name, and
+   * inline subtransactions[].
    */
   private enrichTransaction(
     tx: TransactionDetail,
-    cache: BudgetCache,
+    localBudget: LocalBudget,
   ): EnrichedTransaction {
-    // Get category group name
-    let categoryGroupName: string | null = null;
-    if (tx.category_id !== undefined && tx.category_id !== null) {
-      const category = cache.categoryById.get(tx.category_id);
-      if (category !== undefined) {
-        categoryGroupName =
-          cache.categoryGroupNameById.get(category.category_group_id) ?? null;
-      }
-    }
+    const {categoryGroupName, categoryName} = resolveCategoryInfo(
+      tx.category_id,
+      tx.category_name,
+      localBudget,
+    );
 
-    // Enrich subtransactions
+    // Enrich subtransactions (TransactionDetail has inline subtransactions)
     const enrichedSubtransactions: EnrichedSubTransaction[] =
       tx.subtransactions.map((sub) => {
-        let subCategoryGroupName: string | null = null;
-        if (sub.category_id !== undefined && sub.category_id !== null) {
-          const category = cache.categoryById.get(sub.category_id);
-          if (category !== undefined) {
-            subCategoryGroupName =
-              cache.categoryGroupNameById.get(category.category_group_id) ??
-              null;
-          }
-        }
+        const subCategory = resolveCategoryInfo(
+          sub.category_id,
+          sub.category_name,
+          localBudget,
+        );
 
         return {
           amount: sub.amount,
-          amount_currency: this.toCurrency(sub.amount, cache.currencyFormat),
-          category_group_name: subCategoryGroupName,
+          amount_currency: this.toCurrency(
+            sub.amount,
+            localBudget.currencyFormat,
+          ),
+          category_group_name: subCategory.categoryGroupName,
           category_id: sub.category_id ?? null,
-          category_name: sub.category_name ?? null,
+          category_name: subCategory.categoryName,
           id: sub.id,
           memo: sub.memo ?? null,
           payee_id: sub.payee_id ?? null,
-          payee_name: sub.payee_name ?? null,
+          payee_name: resolvePayeeName(
+            sub.payee_id,
+            sub.payee_name,
+            localBudget,
+          ),
           transaction_id: sub.transaction_id,
           transfer_account_id: sub.transfer_account_id ?? null,
         };
@@ -385,12 +865,12 @@ class YnabClient {
       account_id: tx.account_id,
       account_name: tx.account_name,
       amount: tx.amount,
-      amount_currency: this.toCurrency(tx.amount, cache.currencyFormat),
+      amount_currency: this.toCurrency(tx.amount, localBudget.currencyFormat),
       approved: tx.approved,
       category_group_name: categoryGroupName,
       category_id: tx.category_id ?? null,
-      category_name: tx.category_name ?? null,
-      cleared: tx.cleared as 'cleared' | 'uncleared' | 'reconciled',
+      category_name: categoryName,
+      cleared: tx.cleared,
       date: tx.date,
       flag_color: tx.flag_color ?? null,
       id: tx.id,
@@ -406,7 +886,96 @@ class YnabClient {
   }
 
   /**
-   * Get transactions with optional filters
+   * Enrich a TransactionSummary (from full budget endpoint) with resolved names.
+   *
+   * The full budget endpoint returns TransactionSummary[] which only has IDs,
+   * not resolved names. This method looks up names from the LocalBudget's
+   * lookup maps and joins subtransactions from the flat subtransactions array.
+   *
+   * @param tx - The TransactionSummary from LocalBudget.transactions
+   * @param localBudget - The LocalBudget with lookup maps and subtransactions
+   * @returns An EnrichedTransaction with resolved names and subtransactions
+   */
+  private enrichTransactionSummary(
+    tx: TransactionSummary,
+    localBudget: LocalBudget,
+  ): EnrichedTransaction {
+    // Look up account name
+    const account = localBudget.accountById.get(tx.account_id);
+    const accountName = account?.name ?? 'Unknown Account';
+
+    const payeeName = resolvePayeeName(tx.payee_id, null, localBudget);
+    const {categoryGroupName, categoryName} = resolveCategoryInfo(
+      tx.category_id,
+      null,
+      localBudget,
+    );
+
+    // Get subtransactions for this transaction (O(1) lookup)
+    const subtransactions = (
+      localBudget.subtransactionsByTransactionId.get(tx.id) ?? []
+    ).filter((sub) => sub.deleted !== true);
+
+    // Enrich subtransactions with resolved names
+    const enrichedSubtransactions: EnrichedSubTransaction[] =
+      subtransactions.map((sub: SubTransaction) => {
+        const subCategory = resolveCategoryInfo(
+          sub.category_id,
+          sub.category_name,
+          localBudget,
+        );
+
+        return {
+          amount: sub.amount,
+          amount_currency: this.toCurrency(
+            sub.amount,
+            localBudget.currencyFormat,
+          ),
+          category_group_name: subCategory.categoryGroupName,
+          category_id: sub.category_id ?? null,
+          category_name: subCategory.categoryName,
+          id: sub.id,
+          memo: sub.memo ?? null,
+          payee_id: sub.payee_id ?? null,
+          payee_name: resolvePayeeName(
+            sub.payee_id,
+            sub.payee_name,
+            localBudget,
+          ),
+          transaction_id: sub.transaction_id,
+          transfer_account_id: sub.transfer_account_id ?? null,
+        };
+      });
+
+    return {
+      account_id: tx.account_id,
+      account_name: accountName,
+      amount: tx.amount,
+      amount_currency: this.toCurrency(tx.amount, localBudget.currencyFormat),
+      approved: tx.approved,
+      category_group_name: categoryGroupName,
+      category_id: tx.category_id ?? null,
+      category_name: categoryName,
+      cleared: tx.cleared,
+      date: tx.date,
+      flag_color: tx.flag_color ?? null,
+      id: tx.id,
+      import_id: tx.import_id ?? null,
+      import_payee_name: tx.import_payee_name ?? null,
+      import_payee_name_original: tx.import_payee_name_original ?? null,
+      memo: tx.memo ?? null,
+      payee_id: tx.payee_id ?? null,
+      payee_name: payeeName,
+      subtransactions: enrichedSubtransactions,
+      transfer_account_id: tx.transfer_account_id ?? null,
+    };
+  }
+
+  /**
+   * Get transactions with optional filters.
+   *
+   * Reads from LocalBudget.transactions and applies filters locally.
+   * No API call is made - data comes from the synced local budget.
    */
   async getTransactions(
     budgetId: string,
@@ -416,34 +985,41 @@ class YnabClient {
       type?: 'uncategorized' | 'unapproved';
     } = {},
   ): Promise<EnrichedTransaction[]> {
-    const cache = await this.getBudgetCache(budgetId);
-    const api = this.getApi();
+    const localBudget = await this.getLocalBudget(budgetId);
 
-    let transactions: TransactionDetail[];
+    // Start with all non-deleted transactions
+    let transactions = localBudget.transactions.filter(
+      (tx) => tx.deleted !== true,
+    );
 
+    // Filter by account if specified
     if (options.accountId !== undefined && options.accountId !== '') {
-      // Use account-specific endpoint
-      const response = await api.transactions.getTransactionsByAccount(
-        budgetId,
-        options.accountId,
-        options.sinceDate,
-        options.type,
+      transactions = transactions.filter(
+        (tx) => tx.account_id === options.accountId,
       );
-      transactions = response.data.transactions;
-    } else {
-      // Use main transactions endpoint
-      const response = await api.transactions.getTransactions(
-        budgetId,
-        options.sinceDate,
-        options.type,
-      );
-      transactions = response.data.transactions;
     }
 
-    // Filter out deleted transactions
-    return transactions
-      .filter((tx) => !tx.deleted)
-      .map((tx) => this.enrichTransaction(tx, cache));
+    // Filter by date if specified (since_date is inclusive)
+    if (options.sinceDate !== undefined && options.sinceDate !== '') {
+      const sinceDate = options.sinceDate;
+      transactions = transactions.filter((tx) => tx.date >= sinceDate);
+    }
+
+    // Filter by type
+    if (options.type === 'uncategorized') {
+      // Uncategorized = no category assigned
+      transactions = transactions.filter(
+        (tx) => tx.category_id === undefined || tx.category_id === null,
+      );
+    } else if (options.type === 'unapproved') {
+      // Unapproved = not yet approved
+      transactions = transactions.filter((tx) => tx.approved !== true);
+    }
+
+    // Enrich and return
+    return transactions.map((tx) =>
+      this.enrichTransactionSummary(tx, localBudget),
+    );
   }
 
   /**
@@ -453,7 +1029,7 @@ class YnabClient {
     budgetId: string,
     selector: AccountSelector,
   ): Promise<string> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     // Validate selector has exactly one of name or id
     const selectorHasName = selector.name !== undefined && selector.name !== '';
@@ -505,7 +1081,7 @@ class YnabClient {
     budgetId: string,
     includeClosed = false,
   ): Promise<EnrichedAccount[]> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     return cache.accounts
       .filter((a) => !a.deleted && (includeClosed || !a.closed))
@@ -542,7 +1118,7 @@ class YnabClient {
     flat: EnrichedCategory[];
     groups: CategoryGroupWithCategories[];
   }> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     const flat: EnrichedCategory[] = cache.categories
       .filter((c) => !c.deleted && (includeHidden || !c.hidden))
@@ -559,14 +1135,14 @@ class YnabClient {
         name: c.name,
       }));
 
-    return {flat, groups: cache.categoryGroups};
+    return {flat, groups: this.buildCategoryGroupsWithCategories(cache)};
   }
 
   /**
    * Get all payees for a budget
    */
   async getPayees(budgetId: string): Promise<EnrichedPayee[]> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     return cache.payees
       .filter((p) => !p.deleted)
@@ -642,8 +1218,8 @@ class YnabClient {
 
     // Always invalidate cache after write operations to ensure consistency
     // (payees may be created, and we want fresh data for enrichment)
-    this.budgetCaches.delete(budgetId);
-    const freshCache = await this.getBudgetCache(budgetId);
+    this.markNeedsSync(budgetId);
+    const freshCache = await this.getLocalBudget(budgetId);
     const enriched = updatedTxs.map((tx) =>
       this.enrichTransaction(tx, freshCache),
     );
@@ -657,7 +1233,7 @@ class YnabClient {
    * Get currency format for a budget
    */
   async getCurrencyFormat(budgetId: string): Promise<CurrencyFormat | null> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
     return cache.currencyFormat;
   }
 
@@ -697,7 +1273,7 @@ class YnabClient {
     budgetId: string,
     selector: CategorySelector,
   ): Promise<string> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     const selectorHasName = selector.name !== undefined && selector.name !== '';
     const selectorHasId = selector.id !== undefined && selector.id !== '';
@@ -752,7 +1328,7 @@ class YnabClient {
     budgetId: string,
     selector: PayeeSelector,
   ): Promise<string | null> {
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     const selectorHasName = selector.name !== undefined && selector.name !== '';
     const selectorHasId = selector.id !== undefined && selector.id !== '';
@@ -785,122 +1361,190 @@ class YnabClient {
   }
 
   /**
-   * Get a single transaction by ID
+   * Get a single transaction by ID.
+   *
+   * Reads from LocalBudget.transactions - no API call is made.
    */
   async getTransaction(
     budgetId: string,
     transactionId: string,
   ): Promise<EnrichedTransaction> {
-    const cache = await this.getBudgetCache(budgetId);
-    const api = this.getApi();
+    const localBudget = await this.getLocalBudget(budgetId);
 
-    const response = await api.transactions.getTransactionById(
-      budgetId,
-      transactionId,
+    // Find the transaction in local budget (check all, including deleted)
+    const transaction = localBudget.transactions.find(
+      (tx) => tx.id === transactionId,
     );
 
-    return this.enrichTransaction(response.data.transaction, cache);
+    if (transaction === undefined) {
+      throw new Error(`Transaction not found with ID: '${transactionId}'.`);
+    }
+
+    if (transaction.deleted === true) {
+      throw new Error(
+        `Transaction '${transactionId}' has been deleted in YNAB.`,
+      );
+    }
+
+    return this.enrichTransactionSummary(transaction, localBudget);
   }
 
   /**
-   * Get scheduled transactions
+   * Get scheduled transactions.
+   *
+   * Reads from LocalBudget.scheduledTransactions - no API call is made.
    */
   async getScheduledTransactions(
     budgetId: string,
   ): Promise<EnrichedScheduledTransaction[]> {
-    const cache = await this.getBudgetCache(budgetId);
-    const api = this.getApi();
+    const localBudget = await this.getLocalBudget(budgetId);
 
-    const response =
-      await api.scheduledTransactions.getScheduledTransactions(budgetId);
+    return localBudget.scheduledTransactions
+      .filter((txn) => txn.deleted !== true)
+      .map((txn) => {
+        const account = localBudget.accountById.get(txn.account_id);
+        const accountName = account?.name ?? 'Unknown Account';
 
-    return response.data.scheduled_transactions
-      .filter((txn) => !txn.deleted)
-      .map((txn) => ({
-        account_id: txn.account_id,
-        account_name: txn.account_name,
-        amount: txn.amount,
-        amount_currency: this.toCurrency(txn.amount, cache.currencyFormat),
-        category_id: txn.category_id ?? null,
-        category_name: txn.category_name ?? null,
-        date_first: txn.date_first,
-        date_next: txn.date_next,
-        flag_color: txn.flag_color ?? null,
-        frequency: txn.frequency,
-        id: txn.id,
-        memo: txn.memo ?? null,
-        payee_id: txn.payee_id ?? null,
-        payee_name: txn.payee_name ?? null,
-        subtransactions: txn.subtransactions
-          .filter((sub) => !sub.deleted)
-          .map((sub) => ({
+        const payeeName = resolvePayeeName(txn.payee_id, null, localBudget);
+        const {categoryName} = resolveCategoryInfo(
+          txn.category_id,
+          null,
+          localBudget,
+        );
+
+        // Get subtransactions for this scheduled transaction (O(1) lookup)
+        const subtransactions = (
+          localBudget.scheduledSubtransactionsByScheduledTransactionId.get(
+            txn.id,
+          ) ?? []
+        ).filter((sub) => sub.deleted !== true);
+
+        return {
+          account_id: txn.account_id,
+          account_name: accountName,
+          amount: txn.amount,
+          amount_currency: this.toCurrency(
+            txn.amount,
+            localBudget.currencyFormat,
+          ),
+          category_id: txn.category_id ?? null,
+          category_name: categoryName,
+          date_first: txn.date_first,
+          date_next: txn.date_next,
+          flag_color: txn.flag_color ?? null,
+          frequency: txn.frequency,
+          id: txn.id,
+          memo: txn.memo ?? null,
+          payee_id: txn.payee_id ?? null,
+          payee_name: payeeName,
+          subtransactions: subtransactions.map((sub) => ({
             amount: sub.amount,
-            amount_currency: this.toCurrency(sub.amount, cache.currencyFormat),
+            amount_currency: this.toCurrency(
+              sub.amount,
+              localBudget.currencyFormat,
+            ),
             category_id: sub.category_id ?? null,
-            category_name: sub.category_name ?? null,
+            category_name: resolveCategoryInfo(
+              sub.category_id,
+              sub.category_name,
+              localBudget,
+            ).categoryName,
             id: sub.id,
             memo: sub.memo ?? null,
             payee_id: sub.payee_id ?? null,
-            payee_name: sub.payee_name ?? null,
+            payee_name: resolvePayeeName(
+              sub.payee_id,
+              sub.payee_name,
+              localBudget,
+            ),
             scheduled_transaction_id: sub.scheduled_transaction_id,
             transfer_account_id: sub.transfer_account_id ?? null,
           })),
-        transfer_account_id: txn.transfer_account_id ?? null,
+          transfer_account_id: txn.transfer_account_id ?? null,
+        };
+      });
+  }
+
+  /**
+   * Get budget months list.
+   *
+   * Reads from LocalBudget.months - no API call is made.
+   */
+  async getBudgetMonths(budgetId: string): Promise<EnrichedMonthSummary[]> {
+    const localBudget = await this.getLocalBudget(budgetId);
+
+    return localBudget.months
+      .filter((month) => month.deleted !== true)
+      .map((month) => ({
+        activity: month.activity,
+        activity_currency: this.toCurrency(
+          month.activity,
+          localBudget.currencyFormat,
+        ),
+        age_of_money: month.age_of_money ?? null,
+        budgeted: month.budgeted,
+        budgeted_currency: this.toCurrency(
+          month.budgeted,
+          localBudget.currencyFormat,
+        ),
+        income: month.income,
+        income_currency: this.toCurrency(
+          month.income,
+          localBudget.currencyFormat,
+        ),
+        month: month.month,
+        note: month.note ?? null,
+        to_be_budgeted: month.to_be_budgeted,
+        to_be_budgeted_currency: this.toCurrency(
+          month.to_be_budgeted,
+          localBudget.currencyFormat,
+        ),
       }));
   }
 
   /**
-   * Get budget months list
-   */
-  async getBudgetMonths(budgetId: string): Promise<EnrichedMonthSummary[]> {
-    const cache = await this.getBudgetCache(budgetId);
-    const api = this.getApi();
-
-    const response = await api.months.getBudgetMonths(budgetId);
-
-    return response.data.months.map((month) => ({
-      activity: month.activity,
-      activity_currency: this.toCurrency(month.activity, cache.currencyFormat),
-      age_of_money: month.age_of_money ?? null,
-      budgeted: month.budgeted,
-      budgeted_currency: this.toCurrency(month.budgeted, cache.currencyFormat),
-      income: month.income,
-      income_currency: this.toCurrency(month.income, cache.currencyFormat),
-      month: month.month,
-      note: month.note ?? null,
-      to_be_budgeted: month.to_be_budgeted,
-      to_be_budgeted_currency: this.toCurrency(
-        month.to_be_budgeted,
-        cache.currencyFormat,
-      ),
-    }));
-  }
-
-  /**
-   * Get budget month detail with categories
+   * Get budget month detail with categories.
+   *
+   * Reads from LocalBudget.months - no API call is made.
    */
   async getBudgetMonth(
     budgetId: string,
     month: string,
   ): Promise<EnrichedBudgetMonthDetail> {
-    const cache = await this.getBudgetCache(budgetId);
-    const api = this.getApi();
+    const localBudget = await this.getLocalBudget(budgetId);
 
-    const response = await api.months.getBudgetMonth(budgetId, month);
-    const monthData = response.data.month;
+    // Find the month in local budget (check all, including deleted)
+    const monthData = localBudget.months.find((m) => m.month === month);
+
+    if (monthData === undefined) {
+      throw new Error(`Budget month not found: '${month}'.`);
+    }
+
+    if (monthData.deleted === true) {
+      throw new Error(`Budget month '${month}' has been deleted in YNAB.`);
+    }
 
     const categories: EnrichedMonthCategory[] = monthData.categories
       .filter((c) => !c.deleted)
       .map((c) => ({
         activity: c.activity,
-        activity_currency: this.toCurrency(c.activity, cache.currencyFormat),
+        activity_currency: this.toCurrency(
+          c.activity,
+          localBudget.currencyFormat,
+        ),
         balance: c.balance,
-        balance_currency: this.toCurrency(c.balance, cache.currencyFormat),
+        balance_currency: this.toCurrency(
+          c.balance,
+          localBudget.currencyFormat,
+        ),
         budgeted: c.budgeted,
-        budgeted_currency: this.toCurrency(c.budgeted, cache.currencyFormat),
+        budgeted_currency: this.toCurrency(
+          c.budgeted,
+          localBudget.currencyFormat,
+        ),
         category_group_id: c.category_group_id,
         category_group_name:
-          cache.categoryGroupNameById.get(c.category_group_id) ?? '',
+          localBudget.categoryGroupNameById.get(c.category_group_id) ?? '',
         goal_percentage_complete: c.goal_percentage_complete ?? null,
         goal_target: c.goal_target ?? null,
         goal_type: c.goal_type ?? null,
@@ -913,23 +1557,26 @@ class YnabClient {
       activity: monthData.activity,
       activity_currency: this.toCurrency(
         monthData.activity,
-        cache.currencyFormat,
+        localBudget.currencyFormat,
       ),
       age_of_money: monthData.age_of_money ?? null,
       budgeted: monthData.budgeted,
       budgeted_currency: this.toCurrency(
         monthData.budgeted,
-        cache.currencyFormat,
+        localBudget.currencyFormat,
       ),
       categories,
       income: monthData.income,
-      income_currency: this.toCurrency(monthData.income, cache.currencyFormat),
+      income_currency: this.toCurrency(
+        monthData.income,
+        localBudget.currencyFormat,
+      ),
       month: monthData.month,
       note: monthData.note ?? null,
       to_be_budgeted: monthData.to_be_budgeted,
       to_be_budgeted_currency: this.toCurrency(
         monthData.to_be_budgeted,
-        cache.currencyFormat,
+        localBudget.currencyFormat,
       ),
     };
   }
@@ -976,12 +1623,12 @@ class YnabClient {
     });
 
     // Invalidate cache since payees may have been created
-    this.budgetCaches.delete(budgetId);
+    this.markNeedsSync(budgetId);
 
     const createdTransactions = response.data.transactions ?? [];
     const duplicateImportIds = response.data.duplicate_import_ids ?? [];
 
-    const newCache = await this.getBudgetCache(budgetId);
+    const newCache = await this.getLocalBudget(budgetId);
     const enriched = createdTransactions.map((t) =>
       this.enrichTransaction(t, newCache),
     );
@@ -1001,7 +1648,7 @@ class YnabClient {
   ): Promise<{deleted: EnrichedTransaction}> {
     assertWriteAllowed('delete_transaction');
 
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
     const api = this.getApi();
 
     const response = await api.transactions.deleteTransaction(
@@ -1027,7 +1674,7 @@ class YnabClient {
     const response = await api.transactions.importTransactions(budgetId);
 
     // Invalidate cache since import may create new payees
-    this.budgetCaches.delete(budgetId);
+    this.markNeedsSync(budgetId);
 
     return {
       imported_count: response.data.transaction_ids.length,
@@ -1057,10 +1704,10 @@ class YnabClient {
     });
 
     // Invalidate cache since we've added a new account
-    this.budgetCaches.delete(budgetId);
+    this.markNeedsSync(budgetId);
 
     const account = response.data.account;
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
 
     return {
       balance: account.balance,
@@ -1096,7 +1743,7 @@ class YnabClient {
   ): Promise<EnrichedMonthCategory> {
     assertWriteAllowed('update_category_budget');
 
-    const cache = await this.getBudgetCache(budgetId);
+    const cache = await this.getLocalBudget(budgetId);
     const api = this.getApi();
 
     const response = await api.categories.updateMonthCategory(
@@ -1132,22 +1779,27 @@ class YnabClient {
   }
 
   /**
-   * Clear all caches (useful for testing or refreshing data)
+   * Clear all local budgets (useful for testing or forcing full re-sync)
    */
-  clearCaches(): void {
+  clearLocalBudgets(): void {
     this.budgets = null;
-    this.budgetCaches.clear();
+    this.localBudgets.clear();
+    this.previousBudgetDetails.clear();
   }
 
   /**
-   * Invalidate cache for a specific budget, forcing fresh data on next access.
-   * If no budgetId provided, invalidates all budget caches.
+   * Force sync for a specific budget or all budgets.
+   * If budgetId provided, marks that budget as needing sync.
+   * If no budgetId provided, clears all local budgets (forcing full re-sync on next access).
+   *
+   * @deprecated Use markNeedsSync() for individual budgets. This method
+   * is kept for backwards compatibility but will be removed in a future version.
    */
   invalidateCache(budgetId?: string): void {
     if (budgetId !== undefined) {
-      this.budgetCaches.delete(budgetId);
+      this.markNeedsSync(budgetId);
     } else {
-      this.budgetCaches.clear();
+      this.localBudgets.clear();
       this.budgets = null;
     }
   }
