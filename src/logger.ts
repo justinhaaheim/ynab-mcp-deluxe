@@ -96,6 +96,11 @@ interface ContextLog {
  * @returns A logger that writes to both destinations
  */
 export function createCombinedLogger(contextLog: ContextLog): ContextLog {
+  // If contextLog is already the fileLogger, just return it to avoid double-logging
+  if (contextLog === fileLogger) {
+    return fileLogger;
+  }
+
   return {
     debug(message: string, data?: unknown): void {
       pinoLogger.debug(data as Record<string, unknown> | undefined, message);
