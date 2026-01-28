@@ -79,24 +79,59 @@ export const logger = {
 };
 
 /**
- * Direct pino logger for use in non-FastMCP code (like ynab-client.ts).
- * This bypasses FastMCP's context logger and writes directly to the log file.
- *
- * Use this for sync operations and other internal logging that needs
- * to be visible when the MCP client doesn't surface context logs.
+ * Context logger interface (matches FastMCP's context.log)
  */
-export const fileLogger = {
-  debug(message: string, data?: Record<string, unknown>): void {
-    pinoLogger.debug(data ?? {}, message);
+interface ContextLog {
+  debug: (message: string, data?: unknown) => void;
+  error: (message: string, data?: unknown) => void;
+  info: (message: string, data?: unknown) => void;
+  warn: (message: string, data?: unknown) => void;
+}
+
+/**
+ * Create a combined logger that writes to both the file logger and a context logger.
+ * This ensures logs are visible both in `bun run logs` and in MCP clients that surface context logs.
+ *
+ * @param contextLog - The FastMCP context logger (from tool execute context)
+ * @returns A logger that writes to both destinations
+ */
+export function createCombinedLogger(contextLog: ContextLog): ContextLog {
+  return {
+    debug(message: string, data?: unknown): void {
+      pinoLogger.debug(data as Record<string, unknown> | undefined, message);
+      contextLog.debug(message, data);
+    },
+    error(message: string, data?: unknown): void {
+      pinoLogger.error(data as Record<string, unknown> | undefined, message);
+      contextLog.error(message, data);
+    },
+    info(message: string, data?: unknown): void {
+      pinoLogger.info(data as Record<string, unknown> | undefined, message);
+      contextLog.info(message, data);
+    },
+    warn(message: string, data?: unknown): void {
+      pinoLogger.warn(data as Record<string, unknown> | undefined, message);
+      contextLog.warn(message, data);
+    },
+  };
+}
+
+/**
+ * File-only logger for use when there's no context logger available.
+ * Writes directly to the pino log file.
+ */
+export const fileLogger: ContextLog = {
+  debug(message: string, data?: unknown): void {
+    pinoLogger.debug(data as Record<string, unknown> | undefined, message);
   },
-  error(message: string, data?: Record<string, unknown>): void {
-    pinoLogger.error(data ?? {}, message);
+  error(message: string, data?: unknown): void {
+    pinoLogger.error(data as Record<string, unknown> | undefined, message);
   },
-  info(message: string, data?: Record<string, unknown>): void {
-    pinoLogger.info(data ?? {}, message);
+  info(message: string, data?: unknown): void {
+    pinoLogger.info(data as Record<string, unknown> | undefined, message);
   },
-  warn(message: string, data?: Record<string, unknown>): void {
-    pinoLogger.warn(data ?? {}, message);
+  warn(message: string, data?: unknown): void {
+    pinoLogger.warn(data as Record<string, unknown> | undefined, message);
   },
 };
 

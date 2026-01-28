@@ -49,7 +49,7 @@ import {
   shouldPerformDriftCheck,
 } from './drift-detection.js';
 import {buildLocalBudget, mergeDelta} from './local-budget.js';
-import {fileLogger} from './logger.js';
+import {createCombinedLogger, fileLogger} from './logger.js';
 import {persistSyncResponse} from './sync-history.js';
 import {ApiSyncProvider} from './sync-providers.js';
 
@@ -195,22 +195,9 @@ function analyzeDeltaResponse(deltaBudget: {
 }
 
 /**
- * No-op logger for operations that don't have a context
+ * Default logger when no context is available - logs to file only.
  */
-const noopLog: ContextLog = {
-  debug: () => {
-    /* noop */
-  },
-  error: () => {
-    /* noop */
-  },
-  info: () => {
-    /* noop */
-  },
-  warn: () => {
-    /* noop */
-  },
-};
+const defaultLog: ContextLog = fileLogger;
 
 /**
  * YNAB client with local budget sync
@@ -326,17 +313,14 @@ class YnabClient {
   async getLocalBudgetWithSync(
     budgetId: string,
     options: GetLocalBudgetOptions = {},
-    log: ContextLog = noopLog,
+    contextLog: ContextLog = defaultLog,
   ): Promise<LocalBudget> {
+    // Create combined logger that writes to both file and context
+    const log = createCombinedLogger(contextLog);
+
     const existingBudget = this.localBudgets.get(budgetId);
     const syncDecision = this.determineSyncNeeded(existingBudget, options);
 
-    // Log to file for visibility when MCP client doesn't surface context logs
-    fileLogger.debug('Sync decision', {
-      budgetId,
-      decision: syncDecision.type,
-      reason: syncDecision.reason,
-    });
     log.debug('Sync decision', {
       budgetId,
       decision: syncDecision.type,
@@ -344,11 +328,6 @@ class YnabClient {
     });
 
     if (syncDecision.type === 'none' && existingBudget !== undefined) {
-      fileLogger.debug('Local budget is fresh, skipping sync', {
-        budgetId,
-        lastSyncedAt: existingBudget.lastSyncedAt.toISOString(),
-        serverKnowledge: existingBudget.serverKnowledge,
-      });
       log.debug('Local budget is fresh, skipping sync', {
         budgetId,
         lastSyncedAt: existingBudget.lastSyncedAt.toISOString(),
@@ -362,10 +341,6 @@ class YnabClient {
 
     if (syncDecision.type === 'full' || existingBudget === undefined) {
       // Full sync
-      fileLogger.info('Performing full sync...', {
-        budgetId,
-        reason: syncDecision.reason,
-      });
       log.info('Performing full sync...', {
         budgetId,
         reason: syncDecision.reason,
@@ -395,7 +370,7 @@ class YnabClient {
 
       const totalDurationMs = Math.round(performance.now() - totalStartTime);
 
-      const fullSyncResult = {
+      log.info('Full sync completed', {
         apiDurationMs,
         budgetId,
         counts: {
@@ -408,20 +383,13 @@ class YnabClient {
         persistDurationMs,
         serverKnowledge,
         totalDurationMs,
-      };
-      fileLogger.info('Full sync completed', fullSyncResult);
-      log.info('Full sync completed', fullSyncResult);
+      });
 
       this.localBudgets.set(budgetId, localBudget);
       return localBudget;
     }
 
     // Delta sync
-    fileLogger.info('Performing delta sync...', {
-      budgetId,
-      previousServerKnowledge: existingBudget.serverKnowledge,
-      reason: syncDecision.reason,
-    });
     log.info('Performing delta sync...', {
       budgetId,
       previousServerKnowledge: existingBudget.serverKnowledge,
@@ -439,7 +407,7 @@ class YnabClient {
     const deltaAnalysis = analyzeDeltaResponse(deltaBudget);
     const knowledgeChanged = newServerKnowledge !== previousServerKnowledge;
 
-    const deltaResponseInfo = {
+    log.debug('Delta response received', {
       apiDurationMs,
       deltaAnalysis,
       knowledgeChanged,
@@ -447,19 +415,15 @@ class YnabClient {
         new: newServerKnowledge,
         previous: previousServerKnowledge,
       },
-    };
-    fileLogger.debug('Delta response received', deltaResponseInfo);
-    log.debug('Delta response received', deltaResponseInfo);
+    });
 
     // Log details about transactions if any were returned (most common delta)
     if (deltaAnalysis.transactions.count > 0) {
-      const txnChanges = {
+      log.info('Delta contains transaction changes', {
         count: deltaAnalysis.transactions.count,
         deletedCount: deltaAnalysis.transactions.deletedCount,
         sampleIds: deltaAnalysis.transactions.sampleIds,
-      };
-      fileLogger.info('Delta contains transaction changes', txnChanges);
-      log.info('Delta contains transaction changes', txnChanges);
+      });
     }
 
     const mergeStartTime = performance.now();
@@ -484,7 +448,7 @@ class YnabClient {
 
     const totalDurationMs = Math.round(performance.now() - totalStartTime);
 
-    const deltaSyncResult = {
+    log.info('Delta sync completed', {
       apiDurationMs,
       budgetId,
       changesReceived,
@@ -496,16 +460,13 @@ class YnabClient {
         previous: previousServerKnowledge,
       },
       totalDurationMs,
-    };
-    fileLogger.info('Delta sync completed', deltaSyncResult);
-    log.info('Delta sync completed', deltaSyncResult);
+    });
 
     // Store the merged budget
     this.localBudgets.set(budgetId, localBudget);
 
     // Perform drift detection if enabled and it's time for a check
     if (isDriftDetectionEnabled() && shouldPerformDriftCheck()) {
-      fileLogger.info('Performing drift detection check...', {budgetId});
       log.info('Performing drift detection check...', {budgetId});
 
       try {
@@ -735,7 +696,7 @@ class YnabClient {
    * that don't have access to a logger context.
    */
   private async getLocalBudget(budgetId: string): Promise<LocalBudget> {
-    return await this.getLocalBudgetWithSync(budgetId, {}, noopLog);
+    return await this.getLocalBudgetWithSync(budgetId, {}, defaultLog);
   }
 
   /**
