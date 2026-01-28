@@ -142,7 +142,7 @@ describe('Read-Only Mode', () => {
       // Provide a fake access token for the YNAB API client
       vi.stubEnv('YNAB_ACCESS_TOKEN', 'fake-access-token');
       // Clear any cached state from previous tests
-      ynabClient.clearCaches();
+      ynabClient.clearLocalBudgets();
     });
 
     it('updateTransactions returns updated transactions', async () => {
@@ -302,7 +302,7 @@ describe('Selector Resolution', () => {
 
   beforeEach(() => {
     vi.stubEnv('YNAB_ACCESS_TOKEN', 'fake-access-token');
-    ynabClient.clearCaches();
+    ynabClient.clearLocalBudgets();
   });
 
   afterEach(() => {
@@ -321,8 +321,8 @@ describe('Selector Resolution', () => {
     symbol_first: true,
   };
 
-  // Helper to set up a complete budget cache mock with custom data
-  // getBudgetCache makes 4 parallel API calls, so we need to mock all of them
+  // Helper to set up a complete budget mock with custom data
+  // The new LocalBudget system uses the full budget endpoint
   const setupBudgetCacheMock = (options: {
     accounts?: {
       closed?: boolean;
@@ -346,62 +346,46 @@ describe('Selector Resolution', () => {
     payees?: {deleted?: boolean; id: string; name: string}[];
   }) => {
     server.use(
-      // Budget endpoint (for currency format)
+      // Full budget endpoint (used by LocalBudget system)
       http.get(`${YNAB_BASE_URL}/budgets/:budgetId`, () => {
         return HttpResponse.json({
           data: {
             budget: {
+              accounts: (options.accounts ?? []).map((a) => ({
+                closed: a.closed ?? false,
+                deleted: a.deleted ?? false,
+                id: a.id,
+                name: a.name,
+              })),
+              categories: (options.categories ?? []).map((c) => ({
+                category_group_id: c.category_group_id,
+                deleted: c.deleted ?? false,
+                hidden: c.hidden ?? false,
+                id: c.id,
+                name: c.name,
+              })),
+              category_groups: (options.categoryGroups ?? []).map((g) => ({
+                deleted: g.deleted ?? false,
+                hidden: g.hidden ?? false,
+                id: g.id,
+                name: g.name,
+              })),
               currency_format: mockCurrencyFormat,
               id: budgetId,
+              months: [],
               name: 'Test Budget',
+              payee_locations: [],
+              payees: (options.payees ?? []).map((p) => ({
+                deleted: p.deleted ?? false,
+                id: p.id,
+                name: p.name,
+              })),
+              scheduled_subtransactions: [],
+              scheduled_transactions: [],
+              subtransactions: [],
+              transactions: [],
             },
-          },
-        });
-      }),
-      // Accounts endpoint
-      http.get(`${YNAB_BASE_URL}/budgets/:budgetId/accounts`, () => {
-        return HttpResponse.json({
-          data: {
-            accounts: (options.accounts ?? []).map((a) => ({
-              closed: a.closed ?? false,
-              deleted: a.deleted ?? false,
-              id: a.id,
-              name: a.name,
-            })),
-          },
-        });
-      }),
-      // Categories endpoint
-      http.get(`${YNAB_BASE_URL}/budgets/:budgetId/categories`, () => {
-        return HttpResponse.json({
-          data: {
-            category_groups: (options.categoryGroups ?? []).map((g) => ({
-              categories: (options.categories ?? [])
-                .filter((c) => c.category_group_id === g.id)
-                .map((c) => ({
-                  category_group_id: c.category_group_id,
-                  deleted: c.deleted ?? false,
-                  hidden: c.hidden ?? false,
-                  id: c.id,
-                  name: c.name,
-                })),
-              deleted: g.deleted ?? false,
-              hidden: g.hidden ?? false,
-              id: g.id,
-              name: g.name,
-            })),
-          },
-        });
-      }),
-      // Payees endpoint
-      http.get(`${YNAB_BASE_URL}/budgets/:budgetId/payees`, () => {
-        return HttpResponse.json({
-          data: {
-            payees: (options.payees ?? []).map((p) => ({
-              deleted: p.deleted ?? false,
-              id: p.id,
-              name: p.name,
-            })),
+            server_knowledge: 1,
           },
         });
       }),
@@ -596,7 +580,7 @@ describe('API Error Handling', () => {
 
   beforeEach(() => {
     vi.stubEnv('YNAB_ACCESS_TOKEN', 'fake-access-token');
-    ynabClient.clearCaches();
+    ynabClient.clearLocalBudgets();
   });
 
   afterEach(() => {
@@ -694,7 +678,8 @@ describe('Cache Behavior', () => {
     symbol_first: true,
   };
 
-  // Helper to set up counting handlers for all 4 endpoints that getBudgetCache calls
+  // Helper to set up counting handlers for the full budget endpoint
+  // The new LocalBudget system uses a single call to GET /budgets/{id}
   const setupCountingMock = () => {
     server.use(
       http.get(`${YNAB_BASE_URL}/budgets/:budgetId`, () => {
@@ -702,52 +687,38 @@ describe('Cache Behavior', () => {
         return HttpResponse.json({
           data: {
             budget: {
+              accounts: [
+                {closed: false, deleted: false, id: 'acc-1', name: 'Account 1'},
+              ],
+              categories: [
+                {
+                  category_group_id: 'grp-1',
+                  deleted: false,
+                  hidden: false,
+                  id: 'cat-1',
+                  name: 'Category 1',
+                },
+              ],
+              category_groups: [
+                {
+                  deleted: false,
+                  hidden: false,
+                  id: 'grp-1',
+                  name: 'Group 1',
+                },
+              ],
               currency_format: mockCurrencyFormat,
               id: budgetId,
+              months: [],
               name: 'Test Budget',
+              payee_locations: [],
+              payees: [{deleted: false, id: 'payee-1', name: 'Payee 1'}],
+              scheduled_subtransactions: [],
+              scheduled_transactions: [],
+              subtransactions: [],
+              transactions: [],
             },
-          },
-        });
-      }),
-      http.get(`${YNAB_BASE_URL}/budgets/:budgetId/accounts`, () => {
-        apiCallCount++;
-        return HttpResponse.json({
-          data: {
-            accounts: [
-              {closed: false, deleted: false, id: 'acc-1', name: 'Account 1'},
-            ],
-          },
-        });
-      }),
-      http.get(`${YNAB_BASE_URL}/budgets/:budgetId/categories`, () => {
-        apiCallCount++;
-        return HttpResponse.json({
-          data: {
-            category_groups: [
-              {
-                categories: [
-                  {
-                    category_group_id: 'grp-1',
-                    deleted: false,
-                    hidden: false,
-                    id: 'cat-1',
-                    name: 'Category 1',
-                  },
-                ],
-                deleted: false,
-                hidden: false,
-                id: 'grp-1',
-                name: 'Group 1',
-              },
-            ],
-          },
-        });
-      }),
-      http.get(`${YNAB_BASE_URL}/budgets/:budgetId/payees`, () => {
-        apiCallCount++;
-        return HttpResponse.json({
-          data: {
-            payees: [{deleted: false, id: 'payee-1', name: 'Payee 1'}],
+            server_knowledge: 1,
           },
         });
       }),
@@ -756,7 +727,7 @@ describe('Cache Behavior', () => {
 
   beforeEach(() => {
     vi.stubEnv('YNAB_ACCESS_TOKEN', 'fake-access-token');
-    ynabClient.clearCaches();
+    ynabClient.clearLocalBudgets();
     apiCallCount = 0;
   });
 
@@ -767,31 +738,31 @@ describe('Cache Behavior', () => {
   it('caches budget data after first fetch', async () => {
     setupCountingMock();
 
-    // First call - should hit the API (4 parallel calls: budget, accounts, categories, payees)
+    // First call - should hit the API (1 call to full budget endpoint)
     await ynabClient.resolveAccountId(budgetId, {id: 'acc-1'});
-    expect(apiCallCount).toBe(4);
+    expect(apiCallCount).toBe(1);
 
-    // Second call - should use cache (no additional API calls)
+    // Second call - should use local budget (no additional API calls)
     await ynabClient.resolveCategoryId(budgetId, {id: 'cat-1'});
-    expect(apiCallCount).toBe(4);
+    expect(apiCallCount).toBe(1);
 
-    // Third call - should still use cache (no additional API calls)
+    // Third call - should still use local budget (no additional API calls)
     await ynabClient.resolvePayeeId(budgetId, {id: 'payee-1'});
-    expect(apiCallCount).toBe(4);
+    expect(apiCallCount).toBe(1);
   });
 
-  it('clearCaches() forces fresh API call', async () => {
+  it('clearLocalBudgets() forces fresh API call', async () => {
     setupCountingMock();
 
-    // First call (4 parallel API calls)
+    // First call (1 API call to full budget endpoint)
     await ynabClient.resolveAccountId(budgetId, {id: 'acc-1'});
-    expect(apiCallCount).toBe(4);
+    expect(apiCallCount).toBe(1);
 
-    // Clear cache
-    ynabClient.clearCaches();
+    // Clear local budgets
+    ynabClient.clearLocalBudgets();
 
-    // Second call - should hit API again (4 more parallel API calls)
+    // Second call - should hit API again (1 more API call)
     await ynabClient.resolveAccountId(budgetId, {id: 'acc-1'});
-    expect(apiCallCount).toBe(8);
+    expect(apiCallCount).toBe(2);
   });
 });

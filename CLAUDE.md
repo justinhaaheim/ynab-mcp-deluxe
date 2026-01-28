@@ -100,7 +100,7 @@ YNAB has a 200 requests/hour rate limit. The caching strategy is critical:
 - **Per-budget cache**: Accounts, categories, payees, and currency format are cached together
 - **Lazy-loaded**: Cache is populated on first access to each budget (4 parallel API calls)
 - **Auto-invalidation**: Cache is cleared after any write operation
-- **Manual refresh**: Pass `force_refresh: true` to any read tool to bypass cache
+- **Manual refresh**: Pass `force_sync: true` to any read tool to bypass cache
 - **Session-based**: Cache lives only for server lifetime (in-memory)
 
 ### Lookup Maps
@@ -141,12 +141,16 @@ The `validateSelector()` helper ensures exactly one of `id` or `name` is provide
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `YNAB_ACCESS_TOKEN` | Yes | YNAB API personal access token |
-| `YNAB_BUDGET_ID` | No | Hard constraint - only allow access to this budget (safety feature) |
-| `YNAB_READ_ONLY` | No | Set to `true` or `1` to block all write operations |
-| `YNAB_AUTO_BACKUP` | No | Set to `false` to disable auto-backup |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `YNAB_ACCESS_TOKEN` | Yes | - | YNAB API personal access token |
+| `YNAB_BUDGET_ID` | No | - | Hard constraint - only allow access to this budget (safety feature) |
+| `YNAB_READ_ONLY` | No | `false` | Set to `true` or `1` to block all write operations |
+| `YNAB_SYNC_INTERVAL_SECONDS` | No | `600` | How often to sync with YNAB (0 = always sync) |
+| `YNAB_DRIFT_DETECTION` | No | `true` | Enable drift detection to validate merge logic |
+| `YNAB_ALWAYS_FULL_SYNC` | No | `false` | Skip delta sync, always fetch full budget |
+| `YNAB_DRIFT_CHECK_INTERVAL_SYNCS` | No | `1` | Check for drift every N syncs |
+| `YNAB_DRIFT_CHECK_INTERVAL_MINUTES` | No | `0` | Check for drift every N minutes (0 = disabled) |
 
 ## Testing
 
@@ -189,8 +193,36 @@ server.addTool({
 - **Module System**: ESM throughout
 - **TypeScript**: Strict mode with all checks enabled
 
+## Issue Priority Guidelines
+
+This project uses beads (`bd`) for issue tracking. Priority levels:
+
+- **P0 (Critical)**: Reserved for truly urgent, broken, blocking issues. This project is in alpha - almost nothing should be P0.
+- **P1 (High)**: Essential MVP items that cannot be skipped. Core functionality needed for real-world use.
+- **P2 (Medium)**: Important but not critical. Nice improvements, better testing, workflow tools.
+- **P3 (Low)**: Future enhancements. May or may not be implemented.
+- **P4 (Backlog)**: Ideas to consider later. Not immediately actionable.
+
+**Don't inflate priorities.** Most items should be P2-P4. Reserve P0-P1 for genuinely essential work.
+
+## Development Practices
+
+### Debug Logging
+
+Add liberal debug logging throughout tool execution using FastMCP's context logger:
+
+```typescript
+log.debug('Resolving account selector', { selector: args.account });
+log.debug('Found account', { id: account.id, name: account.name });
+log.debug('Delta sync completed', { changesReceived: delta.transactions.length });
+```
+
+This provides observability during development and helps diagnose issues without cluttering production output.
+
 ## Important General Guidelines
 
 Always follow the important guidelines in @docs/prompts/IMPORTANT_GUIDELINES_INLINED.md
 
 Be aware that messages from the user may contain speech-to-text (S2T) artifacts. Ask for clarification if something seems ambiguous or inconsistent with other parts of the message/project. S2T Guidelines: @docs/prompts/S2T_GUIDELINES.md
+
+@AGENTS.md
