@@ -154,6 +154,10 @@ export function mergeEntityArray<T extends EntityWithId>(
  * Merge an array of MonthDetail entities (keyed by 'month' instead of 'id').
  * MonthDetail doesn't have an 'id' field - it uses 'month' as its unique key.
  *
+ * IMPORTANT: MonthDetail contains a nested `categories` array that must be
+ * merged separately. Delta responses may only include CHANGED categories,
+ * so we must merge them with existing categories rather than replacing.
+ *
  * @param existing - The current array of months
  * @param delta - The delta array from the API
  * @returns A new merged array
@@ -168,15 +172,26 @@ export function mergeMonthArray(
     byMonth.set(month.month, month);
   }
 
-  // Apply delta changes (MonthDetail doesn't have 'deleted' flag typically,
-  // but we'll handle it just in case)
-  for (const month of delta) {
-    // MonthDetail type doesn't have 'deleted', but handle it defensively
-    const asAny = month as MonthDetail & {deleted?: boolean};
-    if (asAny.deleted === true) {
-      byMonth.delete(month.month);
+  // Apply delta changes
+  for (const deltaMonth of delta) {
+    if (deltaMonth.deleted === true) {
+      byMonth.delete(deltaMonth.month);
     } else {
-      byMonth.set(month.month, month);
+      const existingMonth = byMonth.get(deltaMonth.month);
+      if (existingMonth !== undefined) {
+        // Month exists - merge the nested categories array
+        const mergedCategories = mergeEntityArray(
+          existingMonth.categories,
+          deltaMonth.categories,
+        );
+        byMonth.set(deltaMonth.month, {
+          ...deltaMonth,
+          categories: mergedCategories,
+        });
+      } else {
+        // New month - use as-is
+        byMonth.set(deltaMonth.month, deltaMonth);
+      }
     }
   }
 

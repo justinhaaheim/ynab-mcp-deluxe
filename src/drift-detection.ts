@@ -188,29 +188,55 @@ export function resetDriftCheckState(): void {
 }
 
 /**
- * Prepare a LocalBudget for comparison by converting Maps to plain objects
- * and removing non-comparable fields.
+ * Sort an array of entities by their `id` field for consistent comparison.
+ * This ensures that arrays are compared by content, not by position.
+ */
+function sortById<T extends {id: string}>(arr: T[]): T[] {
+  return [...arr].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * Prepare months for comparison by sorting by `month` key and sorting
+ * nested `categories` arrays by `id`.
+ */
+function prepareMonths(months: LocalBudget['months']): LocalBudget['months'] {
+  return [...months]
+    .map((m) => ({
+      ...m,
+      categories: sortById(m.categories),
+    }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+}
+
+/**
+ * Prepare a LocalBudget for comparison by converting Maps to plain objects,
+ * removing non-comparable fields, and normalizing array order.
+ *
+ * Arrays are sorted by ID to ensure comparison is by content, not position.
+ * This is necessary because delta sync may return entities in a different
+ * order than a full fetch.
  *
  * @param budget - The LocalBudget to prepare
  * @returns A plain object suitable for deep comparison
  */
 function prepareForComparison(budget: LocalBudget): Record<string, unknown> {
   // Only compare the data arrays, not the lookup maps or metadata
+  // Sort all arrays by ID to compare by content, not position
   return {
-    accounts: budget.accounts,
+    accounts: sortById(budget.accounts),
     budgetId: budget.budgetId,
     budgetName: budget.budgetName,
-    categories: budget.categories,
-    categoryGroups: budget.categoryGroups,
+    categories: sortById(budget.categories),
+    categoryGroups: sortById(budget.categoryGroups),
     currencyFormat: budget.currencyFormat,
-    months: budget.months,
-    payeeLocations: budget.payeeLocations,
-    payees: budget.payees,
-    scheduledSubtransactions: budget.scheduledSubtransactions,
-    scheduledTransactions: budget.scheduledTransactions,
+    months: prepareMonths(budget.months),
+    payeeLocations: sortById(budget.payeeLocations),
+    payees: sortById(budget.payees),
+    scheduledSubtransactions: sortById(budget.scheduledSubtransactions),
+    scheduledTransactions: sortById(budget.scheduledTransactions),
     // Skip serverKnowledge as it will differ
-    subtransactions: budget.subtransactions,
-    transactions: budget.transactions,
+    subtransactions: sortById(budget.subtransactions),
+    transactions: sortById(budget.transactions),
   };
 }
 

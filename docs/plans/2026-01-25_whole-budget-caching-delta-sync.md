@@ -637,7 +637,7 @@ See ROADMAP.md for tracking.
 
 - [x] Replace `budgetCaches` with `localBudgets: Map<string, LocalBudget>`
 - [x] Implement `getLocalBudgetWithSync(budgetId, options?)` with sync policy
-- [ ] Update all read methods to use LocalBudget (only 3 of 8 complete - see "Read Method Migration Status" below)
+- [x] Update all read methods to use LocalBudget (8 of 8 COMPLETE - 2026-01-27)
 - [x] Update all write methods to call `markNeedsSync()`
 
 #### Phase 6: Remove Auto-Backup
@@ -662,61 +662,44 @@ See ROADMAP.md for tracking.
 - [ ] Add sync policy tests (future enhancement)
 - [ ] Add performance timing tests (future enhancement)
 
-### Implementation Status: ⚠️ Infrastructure Complete, Read Methods Incomplete (2026-01-27)
+### Implementation Status: ✅ Read Method Migration COMPLETE (2026-01-27)
 
-**Infrastructure is complete:**
+**All read methods now use LocalBudget data:**
 
 - LocalBudget system fully operational
 - Delta sync via YNAB's last_knowledge_of_server parameter
 - Sync history persistence for incremental backups
 - Auto-backup removed (sync history replaces it)
-- All tests passing
-- All lint/TypeScript checks passing
+- **All 8 read methods now read from LocalBudget instead of making API calls**
 
-**🔴 CRITICAL GAP: 5 of 8 read methods still make direct API calls instead of using LocalBudget data.** This defeats the primary goal of reducing API calls. See "Read Method Migration Status" below for details.
-
-Pushed to branch: `claude/budget-caching-delta-sync-syXAJ`
+Pushed to branch: `claude/finish-budget-caching-docs-Kw4jr`
 
 ---
 
-## 🔴 Read Method Migration Status (2026-01-27 Audit)
+## ✅ Read Method Migration Status (2026-01-27 - COMPLETE)
 
-### Methods Using LocalBudget ✅ (3 of 8)
+### All Methods Using LocalBudget ✅ (8 of 8)
 
-| Method            | Status      | Notes                               |
-| ----------------- | ----------- | ----------------------------------- |
-| `getAccounts()`   | ✅ Complete | Reads from `localBudget.accounts`   |
-| `getCategories()` | ✅ Complete | Reads from `localBudget.categories` |
-| `getPayees()`     | ✅ Complete | Reads from `localBudget.payees`     |
+| Method                       | Status      | Notes                                                   |
+| ---------------------------- | ----------- | ------------------------------------------------------- |
+| `getAccounts()`              | ✅ Complete | Reads from `localBudget.accounts`                       |
+| `getCategories()`            | ✅ Complete | Reads from `localBudget.categories`                     |
+| `getPayees()`                | ✅ Complete | Reads from `localBudget.payees`                         |
+| `getTransactions()`          | ✅ Complete | Reads from `localBudget.transactions` + subtransactions |
+| `getTransaction()`           | ✅ Complete | Finds by ID in `localBudget.transactions`               |
+| `getScheduledTransactions()` | ✅ Complete | Reads from `localBudget.scheduledTransactions`          |
+| `getBudgetMonths()`          | ✅ Complete | Reads from `localBudget.months`                         |
+| `getBudgetMonth()`           | ✅ Complete | Finds by month in `localBudget.months`                  |
 
-### Methods Still Hitting API ❌ (5 of 8)
+### Implementation Details
 
-| Method                       | Problem                              | API Call Made                                          |
-| ---------------------------- | ------------------------------------ | ------------------------------------------------------ |
-| `getTransactions()`          | Uses LocalBudget only for enrichment | `api.transactions.getTransactions()`                   |
-| `getTransaction()`           | Uses LocalBudget only for enrichment | `api.transactions.getTransactionById()`                |
-| `getScheduledTransactions()` | Uses LocalBudget only for enrichment | `api.scheduledTransactions.getScheduledTransactions()` |
-| `getBudgetMonths()`          | Uses LocalBudget only for enrichment | `api.months.getBudgetMonths()`                         |
-| `getBudgetMonth()`           | Uses LocalBudget only for enrichment | `api.months.getBudgetMonth()`                          |
+Created `enrichTransactionSummary()` helper that transforms `TransactionSummary` → `EnrichedTransaction`:
 
-### Root Cause
+1. Looks up account_name, payee_name, category_name using lookup maps
+2. Joins subtransactions from flat `localBudget.subtransactions` array
+3. Enriches subtransactions with resolved names
 
-The full budget endpoint (`GET /budgets/{id}`) returns:
-
-- `TransactionSummary[]` - IDs only, no resolved names, no embedded subtransactions
-
-But transaction-specific endpoints return:
-
-- `TransactionDetail[]` - with resolved names and embedded subtransactions
-
-The current code takes the "easy path" of calling API endpoints to get richer data, even though we CAN construct equivalent data locally using:
-
-1. Lookup maps to resolve names from IDs
-2. Flat `subtransactions` array joined back to parent transactions
-
-### Fix Required
-
-Create `enrichTransactionSummary()` helper that transforms `TransactionSummary` → `EnrichedTransaction` using lookup maps, then refactor all 5 methods to read from LocalBudget instead of making API calls.
+All 5 previously-incomplete methods were refactored to use this helper and read from LocalBudget.
 
 ---
 
@@ -740,7 +723,7 @@ Key assumptions that need real-world validation:
 
 | Item                                     | Status                | Priority |
 | ---------------------------------------- | --------------------- | -------- |
-| 🔴 **Read method migration**             | **5 of 8 incomplete** | CRITICAL |
+| ✅ **Read method migration**             | **8 of 8 COMPLETE**   | CRITICAL |
 | 🔴 Real API validation                   | Not done              | CRITICAL |
 | ✅ Drift detection                       | **IMPLEMENTED**       | HIGH     |
 | ✅ `YNAB_ALWAYS_FULL_SYNC` mode          | **IMPLEMENTED**       | HIGH     |
@@ -752,7 +735,7 @@ Key assumptions that need real-world validation:
 
 ### Must-Have Before Production
 
-1. **🔴 Migrate remaining read methods** - 5 methods still make API calls (see "Read Method Migration Status" above)
+1. ✅ **Migrate remaining read methods** - All 8 methods now use LocalBudget
 2. ✅ **Drift detection with self-healing** - Validates our merge logic against real API
 3. ✅ **"Always full sync" mode** - Fallback if delta sync has bugs
 4. **🔴 Real API integration testing** - Manual validation needed
@@ -1157,3 +1140,6 @@ Options for creating test JSON files:
 - 2026-01-26: Added 75 unit tests (34 local-budget, 41 drift-detection)
 - 2026-01-26: Added security docs to README, clear_sync_history tool
 - 2026-01-26: Phase 10 (Static JSON Testing) planned
+- 2026-01-27: **Read method migration COMPLETE** - All 8 read methods now use LocalBudget data
+  - Created `enrichTransactionSummary()` helper for TransactionSummary → EnrichedTransaction
+  - Migrated: getTransactions(), getTransaction(), getScheduledTransactions(), getBudgetMonths(), getBudgetMonth()

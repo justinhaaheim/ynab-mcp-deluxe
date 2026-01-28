@@ -129,3 +129,6 @@ reference-projects/
 
 /data/sensitive/*
 # /data/tmp/*
+
+# bv (beads viewer) local config and caches
+.bv/
