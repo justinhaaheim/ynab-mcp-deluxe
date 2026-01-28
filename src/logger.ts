@@ -79,6 +79,28 @@ export const logger = {
 };
 
 /**
+ * Direct pino logger for use in non-FastMCP code (like ynab-client.ts).
+ * This bypasses FastMCP's context logger and writes directly to the log file.
+ *
+ * Use this for sync operations and other internal logging that needs
+ * to be visible when the MCP client doesn't surface context logs.
+ */
+export const fileLogger = {
+  debug(message: string, data?: Record<string, unknown>): void {
+    pinoLogger.debug(data ?? {}, message);
+  },
+  error(message: string, data?: Record<string, unknown>): void {
+    pinoLogger.error(data ?? {}, message);
+  },
+  info(message: string, data?: Record<string, unknown>): void {
+    pinoLogger.info(data ?? {}, message);
+  },
+  warn(message: string, data?: Record<string, unknown>): void {
+    pinoLogger.warn(data ?? {}, message);
+  },
+};
+
+/**
  * Get the glob pattern for log files.
  * pino-roll names files as server.N.log where N is the rotation counter.
  */
