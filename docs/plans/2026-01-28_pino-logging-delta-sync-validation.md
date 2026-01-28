@@ -64,7 +64,40 @@ The following debug/info logging was added to `ynab-client.ts`:
 3. **Transaction-specific logging** - When delta contains transactions:
    - Count, deleted count, and sample IDs
 
+## Delta Sync Validation Results (2026-01-28)
+
+**DRIFT DETECTED** - Our merge logic has a bug!
+
+### What We Found
+
+1. **Delta sync WORKS** - API returns only changed entities when `last_knowledge_of_server` is passed
+2. **serverKnowledge increments** - Went from 64 → 66 after changes
+3. **Multiple entity types affected** - Delta included accounts, categories, months, transactions
+
+### The Bug
+
+`mergeMonthArray()` replaces entire month objects instead of merging nested `categories` array.
+
+When delta returns a month, it includes the full categories for that month. Our code does:
+
+```typescript
+byMonth.set(month.month, month); // WRONG: replaces entire month
+```
+
+But the existing month had ALL categories, and the delta month only has CHANGED categories. So we lose all the unchanged categories.
+
+**Drift detection caught this:**
+
+- 526 differences (83 months, 443 transactions)
+- All differences are `kind: "N"` - items exist in full fetch but not in merged
+
+### Filed Issues
+
+- **ynab-mcp-deluxe-sa2** (P1): Fix month merge bug
+- **ynab-mcp-deluxe-vma** (P2): Document API behaviors (blocked by sa2)
+
 ## Progress Log
 
 - 2026-01-28: Started work, adding pino logging infrastructure
 - 2026-01-28: Added enhanced sync logging (decision reasons, delta analysis)
+- 2026-01-28: Real API validation revealed month merge bug - drift detection working!
