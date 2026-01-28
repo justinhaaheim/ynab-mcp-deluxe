@@ -41,6 +41,30 @@ Once logging is in place:
 2. When entities are deleted, does the API return them with `deleted: true`?
 3. Does our merge logic produce the same result as a full re-fetch?
 
+## New Logging Added
+
+The following debug/info logging was added to `ynab-client.ts`:
+
+1. **Sync decision logging** - Logs why sync is happening:
+
+   - `forceSync: full/delta requested`
+   - `no local budget exists (initial sync)`
+   - `YNAB_ALWAYS_FULL_SYNC enabled`
+   - `needsSync flag set (write operation occurred)`
+   - `sync interval passed (Xs elapsed, interval: Xs)`
+   - `local budget is fresh (Xs until next sync)`
+
+2. **Delta response analysis** - Logs what's in the delta:
+
+   - Count of items per entity type
+   - Count of deleted items (for validating delete handling)
+   - Sample IDs for debugging
+   - Whether server knowledge changed
+
+3. **Transaction-specific logging** - When delta contains transactions:
+   - Count, deleted count, and sample IDs
+
 ## Progress Log
 
 - 2026-01-28: Started work, adding pino logging infrastructure
+- 2026-01-28: Added enhanced sync logging (decision reasons, delta analysis)

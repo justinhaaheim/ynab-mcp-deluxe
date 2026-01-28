@@ -118,6 +118,82 @@ interface ContextLog {
 }
 
 /**
+ * Sync decision with reason for logging
+ */
+interface SyncDecision {
+  reason: string;
+  type: SyncType | 'none';
+}
+
+/**
+ * Analyze a delta response to provide detailed logging info.
+ * Counts items, deletions, and provides sample IDs.
+ */
+interface DeltaAnalysis {
+  accounts: EntityAnalysis;
+  categories: EntityAnalysis;
+  months: EntityAnalysis;
+  payees: EntityAnalysis;
+  scheduledTransactions: EntityAnalysis;
+  transactions: EntityAnalysis;
+}
+
+interface EntityAnalysis {
+  count: number;
+  deletedCount: number;
+  sampleIds: string[];
+}
+
+function analyzeEntityArray<T extends {deleted?: boolean; id: string}>(
+  items: T[] | undefined,
+): EntityAnalysis {
+  if (items === undefined || items.length === 0) {
+    return {count: 0, deletedCount: 0, sampleIds: []};
+  }
+
+  const deletedCount = items.filter((item) => item.deleted === true).length;
+  const sampleIds = items.slice(0, 3).map((item) => item.id);
+
+  return {
+    count: items.length,
+    deletedCount,
+    sampleIds,
+  };
+}
+
+function analyzeDeltaResponse(deltaBudget: {
+  accounts?: {deleted?: boolean; id: string}[];
+  categories?: {deleted?: boolean; id: string}[];
+  months?: {deleted?: boolean; month: string}[];
+  payees?: {deleted?: boolean; id: string}[];
+  scheduled_transactions?: {deleted?: boolean; id: string}[];
+  transactions?: {deleted?: boolean; id: string}[];
+}): DeltaAnalysis {
+  // Helper for months which use 'month' instead of 'id'
+  const analyzeMonths = (
+    items: {deleted?: boolean; month: string}[] | undefined,
+  ): EntityAnalysis => {
+    if (items === undefined || items.length === 0) {
+      return {count: 0, deletedCount: 0, sampleIds: []};
+    }
+    const deletedCount = items.filter((item) => item.deleted === true).length;
+    const sampleIds = items.slice(0, 3).map((item) => item.month);
+    return {count: items.length, deletedCount, sampleIds};
+  };
+
+  return {
+    accounts: analyzeEntityArray(deltaBudget.accounts),
+    categories: analyzeEntityArray(deltaBudget.categories),
+    months: analyzeMonths(deltaBudget.months),
+    payees: analyzeEntityArray(deltaBudget.payees),
+    scheduledTransactions: analyzeEntityArray(
+      deltaBudget.scheduled_transactions,
+    ),
+    transactions: analyzeEntityArray(deltaBudget.transactions),
+  };
+}
+
+/**
  * No-op logger for operations that don't have a context
  */
 const noopLog: ContextLog = {
@@ -179,34 +255,60 @@ class YnabClient {
 
   /**
    * Determine what kind of sync is needed based on policy.
+   * Returns both the sync type and the reason for logging.
    */
   private determineSyncNeeded(
     localBudget: LocalBudget | undefined,
     options: GetLocalBudgetOptions,
-  ): SyncType | 'none' {
+  ): SyncDecision {
     // Force full sync requested
-    if (options.forceSync === 'full') return 'full';
+    if (options.forceSync === 'full') {
+      return {reason: 'forceSync: full requested', type: 'full'};
+    }
 
     // No local budget yet - need initial full sync
-    if (localBudget === undefined) return 'full';
+    if (localBudget === undefined) {
+      return {reason: 'no local budget exists (initial sync)', type: 'full'};
+    }
 
     // "Always full sync" mode - skip delta optimization entirely
     // This is a valid production strategy if delta sync proves unreliable
-    if (isAlwaysFullSyncEnabled()) return 'full';
+    if (isAlwaysFullSyncEnabled()) {
+      return {reason: 'YNAB_ALWAYS_FULL_SYNC enabled', type: 'full'};
+    }
 
     // Force delta sync requested
-    if (options.forceSync === 'delta') return 'delta';
+    if (options.forceSync === 'delta') {
+      return {reason: 'forceSync: delta requested', type: 'delta'};
+    }
 
     // Write happened - need to sync
-    if (localBudget.needsSync) return 'delta';
+    if (localBudget.needsSync) {
+      return {
+        reason: 'needsSync flag set (write operation occurred)',
+        type: 'delta',
+      };
+    }
 
     // Check interval
     const elapsed = Date.now() - localBudget.lastSyncedAt.getTime();
     const intervalMs = getSyncIntervalMs();
-    if (elapsed >= intervalMs) return 'delta';
+    if (elapsed >= intervalMs) {
+      const elapsedSeconds = Math.round(elapsed / 1000);
+      const intervalSeconds = Math.round(intervalMs / 1000);
+      return {
+        reason: `sync interval passed (${elapsedSeconds}s elapsed, interval: ${intervalSeconds}s)`,
+        type: 'delta',
+      };
+    }
 
     // Local budget is fresh enough
-    return 'none';
+    const remainingMs = intervalMs - elapsed;
+    const remainingSeconds = Math.round(remainingMs / 1000);
+    return {
+      reason: `local budget is fresh (${remainingSeconds}s until next sync)`,
+      type: 'none',
+    };
   }
 
   /**
@@ -226,9 +328,15 @@ class YnabClient {
     log: ContextLog = noopLog,
   ): Promise<LocalBudget> {
     const existingBudget = this.localBudgets.get(budgetId);
-    const syncNeeded = this.determineSyncNeeded(existingBudget, options);
+    const syncDecision = this.determineSyncNeeded(existingBudget, options);
 
-    if (syncNeeded === 'none' && existingBudget !== undefined) {
+    log.debug('Sync decision', {
+      budgetId,
+      decision: syncDecision.type,
+      reason: syncDecision.reason,
+    });
+
+    if (syncDecision.type === 'none' && existingBudget !== undefined) {
       log.debug('Local budget is fresh, skipping sync', {
         budgetId,
         lastSyncedAt: existingBudget.lastSyncedAt.toISOString(),
@@ -240,9 +348,12 @@ class YnabClient {
     const syncProvider = this.getSyncProvider();
     const totalStartTime = performance.now();
 
-    if (syncNeeded === 'full' || existingBudget === undefined) {
+    if (syncDecision.type === 'full' || existingBudget === undefined) {
       // Full sync
-      log.info('Performing full sync...', {budgetId});
+      log.info('Performing full sync...', {
+        budgetId,
+        reason: syncDecision.reason,
+      });
 
       const apiStartTime = performance.now();
       const {budget, serverKnowledge} = await syncProvider.fullSync(budgetId);
@@ -291,6 +402,7 @@ class YnabClient {
     log.info('Performing delta sync...', {
       budgetId,
       previousServerKnowledge: existingBudget.serverKnowledge,
+      reason: syncDecision.reason,
     });
 
     const previousServerKnowledge = existingBudget.serverKnowledge;
@@ -299,6 +411,29 @@ class YnabClient {
     const {budget: deltaBudget, serverKnowledge: newServerKnowledge} =
       await syncProvider.deltaSync(budgetId, previousServerKnowledge);
     const apiDurationMs = Math.round(performance.now() - apiStartTime);
+
+    // Analyze what's in the delta response for validation logging
+    const deltaAnalysis = analyzeDeltaResponse(deltaBudget);
+    const knowledgeChanged = newServerKnowledge !== previousServerKnowledge;
+
+    log.debug('Delta response received', {
+      apiDurationMs,
+      deltaAnalysis,
+      knowledgeChanged,
+      serverKnowledge: {
+        new: newServerKnowledge,
+        previous: previousServerKnowledge,
+      },
+    });
+
+    // Log details about transactions if any were returned (most common delta)
+    if (deltaAnalysis.transactions.count > 0) {
+      log.info('Delta contains transaction changes', {
+        count: deltaAnalysis.transactions.count,
+        deletedCount: deltaAnalysis.transactions.deletedCount,
+        sampleIds: deltaAnalysis.transactions.sampleIds,
+      });
+    }
 
     const mergeStartTime = performance.now();
     const {localBudget, changesReceived} = mergeDelta(
@@ -326,6 +461,7 @@ class YnabClient {
       apiDurationMs,
       budgetId,
       changesReceived,
+      knowledgeChanged,
       mergeDurationMs,
       persistDurationMs,
       serverKnowledge: {
