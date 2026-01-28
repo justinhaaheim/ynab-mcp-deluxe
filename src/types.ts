@@ -14,8 +14,33 @@ import type {
   ScheduledSubTransaction,
   ScheduledTransactionSummary,
   SubTransaction,
+  TransactionClearedStatus,
+  TransactionFlagColor,
   TransactionSummary,
 } from 'ynab';
+
+// ============================================================================
+// SDK-Derived Types (Single Source of Truth)
+// ============================================================================
+
+/**
+ * Cleared status derived from YNAB SDK.
+ * DO NOT hardcode these values - always use this type.
+ */
+export type ClearedStatus = TransactionClearedStatus;
+
+/**
+ * Flag color derived from YNAB SDK.
+ * The SDK includes "" (empty string) for "no flag". For input types
+ * (create/update), use FlagColorInput which excludes the empty string.
+ */
+export type FlagColor = TransactionFlagColor;
+
+/**
+ * Flag color for input operations (create/update) - excludes the empty
+ * string value that the SDK includes for "no flag".
+ */
+export type FlagColorInput = Exclude<TransactionFlagColor, ''>;
 
 // ============================================================================
 // Local Budget Types (for delta sync)
@@ -210,7 +235,7 @@ export interface EnrichedTransaction {
   category_group_name: string | null;
   category_id: string | null;
   category_name: string | null;
-  cleared: 'cleared' | 'uncleared' | 'reconciled';
+  cleared: ClearedStatus;
   // Transaction details - ISO format "2025-01-15"
   date: string;
   flag_color: string | null;
@@ -390,11 +415,11 @@ export interface TransactionUpdate {
   /** Set category */
   category_id?: string;
   /** Set cleared status */
-  cleared?: 'cleared' | 'uncleared' | 'reconciled';
+  cleared?: ClearedStatus;
   /** Change transaction date (YYYY-MM-DD) */
   date?: string;
   /** Set flag color (null to clear) */
-  flag_color?: 'blue' | 'green' | 'orange' | 'purple' | 'red' | 'yellow' | null;
+  flag_color?: FlagColorInput | null;
   /** Transaction ID (required) */
   id: string;
   /** Set memo text */
@@ -548,9 +573,9 @@ export interface CreateTransactionInput {
   amount: number;
   approved?: boolean;
   category_id?: string;
-  cleared?: 'cleared' | 'uncleared' | 'reconciled';
+  cleared?: ClearedStatus;
   date: string;
-  flag_color?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple';
+  flag_color?: FlagColorInput;
   memo?: string;
   payee_id?: string;
   payee_name?: string;
