@@ -83,6 +83,70 @@ export function assertWriteAllowed(operation: string): void {
 // ============================================================================
 // Sync Configuration
 // ============================================================================
+// Enrichment Helpers
+// ============================================================================
+
+/**
+ * Resolve a payee name from a payee ID using the LocalBudget lookup maps.
+ * Returns the existing name if already provided, otherwise looks up by ID.
+ */
+function resolvePayeeName(
+  payeeId: string | null | undefined,
+  existingName: string | null | undefined,
+  localBudget: LocalBudget,
+): string | null {
+  if (
+    existingName !== undefined &&
+    existingName !== null &&
+    existingName !== ''
+  )
+    return existingName;
+  if (payeeId === undefined || payeeId === null) return null;
+  return localBudget.payeeById.get(payeeId)?.name ?? null;
+}
+
+/**
+ * Resolve category name and category group name from a category ID.
+ * Returns the existing names if already provided, otherwise looks up by ID.
+ */
+function resolveCategoryInfo(
+  categoryId: string | null | undefined,
+  existingName: string | null | undefined,
+  localBudget: LocalBudget,
+): {categoryGroupName: string | null; categoryName: string | null} {
+  if (
+    existingName !== undefined &&
+    existingName !== null &&
+    existingName !== ''
+  ) {
+    // We have the name but still need the group name from lookup
+    const category =
+      categoryId !== undefined && categoryId !== null
+        ? localBudget.categoryById.get(categoryId)
+        : undefined;
+    const categoryGroupName =
+      category !== undefined
+        ? (localBudget.categoryGroupNameById.get(category.category_group_id) ??
+          null)
+        : null;
+    return {categoryGroupName, categoryName: existingName};
+  }
+
+  if (categoryId === undefined || categoryId === null) {
+    return {categoryGroupName: null, categoryName: null};
+  }
+
+  const category = localBudget.categoryById.get(categoryId);
+  if (category === undefined) {
+    return {categoryGroupName: null, categoryName: null};
+  }
+
+  const categoryGroupName =
+    localBudget.categoryGroupNameById.get(category.category_group_id) ?? null;
+  return {categoryGroupName, categoryName: category.name};
+}
+
+// ============================================================================
 
 /**
  * Default sync interval in seconds (10 minutes)
@@ -731,36 +795,29 @@ class YnabClient {
   }
 
   /**
-   * Enrich a transaction with resolved names
+   * Enrich a transaction with resolved names.
+   * Used for TransactionDetail (from individual transaction endpoints),
+   * which already has payee_name, category_name, account_name, and
+   * inline subtransactions[].
    */
   private enrichTransaction(
     tx: TransactionDetail,
     localBudget: LocalBudget,
   ): EnrichedTransaction {
-    // Get category group name
-    let categoryGroupName: string | null = null;
-    if (tx.category_id !== undefined && tx.category_id !== null) {
-      const category = localBudget.categoryById.get(tx.category_id);
-      if (category !== undefined) {
-        categoryGroupName =
-          localBudget.categoryGroupNameById.get(category.category_group_id) ??
-          null;
-      }
-    }
+    const {categoryGroupName, categoryName} = resolveCategoryInfo(
+      tx.category_id,
+      tx.category_name,
+      localBudget,
+    );
 
-    // Enrich subtransactions
+    // Enrich subtransactions (TransactionDetail has inline subtransactions)
     const enrichedSubtransactions: EnrichedSubTransaction[] =
       tx.subtransactions.map((sub) => {
-        let subCategoryGroupName: string | null = null;
-        if (sub.category_id !== undefined && sub.category_id !== null) {
-          const category = localBudget.categoryById.get(sub.category_id);
-          if (category !== undefined) {
-            subCategoryGroupName =
-              localBudget.categoryGroupNameById.get(
-                category.category_group_id,
-              ) ?? null;
-          }
-        }
+        const subCategory = resolveCategoryInfo(
+          sub.category_id,
+          sub.category_name,
+          localBudget,
+        );
 
         return {
           amount: sub.amount,
@@ -768,13 +825,17 @@ class YnabClient {
             sub.amount,
             localBudget.currencyFormat,
           ),
-          category_group_name: subCategoryGroupName,
+          category_group_name: subCategory.categoryGroupName,
           category_id: sub.category_id ?? null,
-          category_name: sub.category_name ?? null,
+          category_name: subCategory.categoryName,
           id: sub.id,
           memo: sub.memo ?? null,
           payee_id: sub.payee_id ?? null,
-          payee_name: sub.payee_name ?? null,
+          payee_name: resolvePayeeName(
+            sub.payee_id,
+            sub.payee_name,
+            localBudget,
+          ),
           transaction_id: sub.transaction_id,
           transfer_account_id: sub.transfer_account_id ?? null,
         };
@@ -788,7 +849,7 @@ class YnabClient {
       approved: tx.approved,
       category_group_name: categoryGroupName,
       category_id: tx.category_id ?? null,
-      category_name: tx.category_name ?? null,
+      category_name: categoryName,
       cleared: tx.cleared as 'cleared' | 'uncleared' | 'reconciled',
       date: tx.date,
       flag_color: tx.flag_color ?? null,
@@ -823,25 +884,12 @@ class YnabClient {
     const account = localBudget.accountById.get(tx.account_id);
     const accountName = account?.name ?? 'Unknown Account';
 
-    // Look up payee name
-    let payeeName: string | null = null;
-    if (tx.payee_id !== undefined && tx.payee_id !== null) {
-      const payee = localBudget.payeeById.get(tx.payee_id);
-      payeeName = payee?.name ?? null;
-    }
-
-    // Look up category name and group name
-    let categoryName: string | null = null;
-    let categoryGroupName: string | null = null;
-    if (tx.category_id !== undefined && tx.category_id !== null) {
-      const category = localBudget.categoryById.get(tx.category_id);
-      if (category !== undefined) {
-        categoryName = category.name;
-        categoryGroupName =
-          localBudget.categoryGroupNameById.get(category.category_group_id) ??
-          null;
-      }
-    }
+    const payeeName = resolvePayeeName(tx.payee_id, null, localBudget);
+    const {categoryGroupName, categoryName} = resolveCategoryInfo(
+      tx.category_id,
+      null,
+      localBudget,
+    );
 
     // Find subtransactions for this transaction
     const subtransactions = localBudget.subtransactions.filter(
@@ -851,29 +899,11 @@ class YnabClient {
     // Enrich subtransactions with resolved names
     const enrichedSubtransactions: EnrichedSubTransaction[] =
       subtransactions.map((sub: SubTransaction) => {
-        let subCategoryGroupName: string | null = null;
-        let subCategoryName: string | null = null;
-        if (sub.category_id !== undefined && sub.category_id !== null) {
-          const category = localBudget.categoryById.get(sub.category_id);
-          if (category !== undefined) {
-            subCategoryName = category.name;
-            subCategoryGroupName =
-              localBudget.categoryGroupNameById.get(
-                category.category_group_id,
-              ) ?? null;
-          }
-        }
-
-        // Look up payee name for subtransaction
-        let subPayeeName: string | null = sub.payee_name ?? null;
-        if (
-          subPayeeName === null &&
-          sub.payee_id !== undefined &&
-          sub.payee_id !== null
-        ) {
-          const payee = localBudget.payeeById.get(sub.payee_id);
-          subPayeeName = payee?.name ?? null;
-        }
+        const subCategory = resolveCategoryInfo(
+          sub.category_id,
+          sub.category_name,
+          localBudget,
+        );
 
         return {
           amount: sub.amount,
@@ -881,13 +911,17 @@ class YnabClient {
             sub.amount,
             localBudget.currencyFormat,
           ),
-          category_group_name: subCategoryGroupName,
+          category_group_name: subCategory.categoryGroupName,
           category_id: sub.category_id ?? null,
-          category_name: sub.category_name ?? subCategoryName,
+          category_name: subCategory.categoryName,
           id: sub.id,
           memo: sub.memo ?? null,
           payee_id: sub.payee_id ?? null,
-          payee_name: subPayeeName,
+          payee_name: resolvePayeeName(
+            sub.payee_id,
+            sub.payee_name,
+            localBudget,
+          ),
           transaction_id: sub.transaction_id,
           transfer_account_id: sub.transfer_account_id ?? null,
         };
@@ -1342,23 +1376,15 @@ class YnabClient {
     return localBudget.scheduledTransactions
       .filter((txn) => txn.deleted !== true)
       .map((txn) => {
-        // Look up account name
         const account = localBudget.accountById.get(txn.account_id);
         const accountName = account?.name ?? 'Unknown Account';
 
-        // Look up payee name
-        let payeeName: string | null = null;
-        if (txn.payee_id !== undefined && txn.payee_id !== null) {
-          const payee = localBudget.payeeById.get(txn.payee_id);
-          payeeName = payee?.name ?? null;
-        }
-
-        // Look up category name
-        let categoryName: string | null = null;
-        if (txn.category_id !== undefined && txn.category_id !== null) {
-          const category = localBudget.categoryById.get(txn.category_id);
-          categoryName = category?.name ?? null;
-        }
+        const payeeName = resolvePayeeName(txn.payee_id, null, localBudget);
+        const {categoryName} = resolveCategoryInfo(
+          txn.category_id,
+          null,
+          localBudget,
+        );
 
         // Find subtransactions for this scheduled transaction
         const subtransactions = localBudget.scheduledSubtransactions.filter(
@@ -1384,45 +1410,29 @@ class YnabClient {
           memo: txn.memo ?? null,
           payee_id: txn.payee_id ?? null,
           payee_name: payeeName,
-          subtransactions: subtransactions.map((sub) => {
-            // Look up payee name for subtransaction if not already set
-            let subPayeeName = sub.payee_name ?? null;
-            if (
-              subPayeeName === null &&
-              sub.payee_id !== undefined &&
-              sub.payee_id !== null
-            ) {
-              const payee = localBudget.payeeById.get(sub.payee_id);
-              subPayeeName = payee?.name ?? null;
-            }
-
-            // Look up category name if not already set
-            let subCategoryName = sub.category_name ?? null;
-            if (
-              subCategoryName === null &&
-              sub.category_id !== undefined &&
-              sub.category_id !== null
-            ) {
-              const category = localBudget.categoryById.get(sub.category_id);
-              subCategoryName = category?.name ?? null;
-            }
-
-            return {
-              amount: sub.amount,
-              amount_currency: this.toCurrency(
-                sub.amount,
-                localBudget.currencyFormat,
-              ),
-              category_id: sub.category_id ?? null,
-              category_name: subCategoryName,
-              id: sub.id,
-              memo: sub.memo ?? null,
-              payee_id: sub.payee_id ?? null,
-              payee_name: subPayeeName,
-              scheduled_transaction_id: sub.scheduled_transaction_id,
-              transfer_account_id: sub.transfer_account_id ?? null,
-            };
-          }),
+          subtransactions: subtransactions.map((sub) => ({
+            amount: sub.amount,
+            amount_currency: this.toCurrency(
+              sub.amount,
+              localBudget.currencyFormat,
+            ),
+            category_id: sub.category_id ?? null,
+            category_name: resolveCategoryInfo(
+              sub.category_id,
+              sub.category_name,
+              localBudget,
+            ).categoryName,
+            id: sub.id,
+            memo: sub.memo ?? null,
+            payee_id: sub.payee_id ?? null,
+            payee_name: resolvePayeeName(
+              sub.payee_id,
+              sub.payee_name,
+              localBudget,
+            ),
+            scheduled_transaction_id: sub.scheduled_transaction_id,
+            transfer_account_id: sub.transfer_account_id ?? null,
+          })),
           transfer_account_id: txn.transfer_account_id ?? null,
         };
       });
