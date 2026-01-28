@@ -35,6 +35,7 @@ import {
   sortTransactions,
   validateSelector,
 } from './helpers.js';
+import {logger} from './logger.js';
 import {clearSyncHistory} from './sync-history.js';
 import {isReadOnlyMode, ynabClient} from './ynab-client.js';
 
@@ -42,6 +43,7 @@ const server = new FastMCP({
   instructions: `MCP server for YNAB budget management.
 
 Caching: Data (accounts, categories, payees) is cached to minimize API calls and respect YNAB's rate limit (200 requests/hour). Cache is automatically invalidated after write operations. Use force_sync: true on any read tool to manually invalidate the cache and fetch fresh data.`,
+  logger,
   name: 'YNAB MCP Server',
   version: '1.0.0',
 });
