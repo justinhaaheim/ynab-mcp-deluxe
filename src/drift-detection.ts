@@ -10,9 +10,45 @@
  */
 
 import type {LocalBudget} from './types.js';
-import type {Diff} from 'deep-diff';
+import type {Diff, DiffArray, DiffDeleted, DiffEdit, DiffNew} from 'deep-diff';
 
 import deepDiff from 'deep-diff';
+
+// ============================================================================
+// Type Guards for deep-diff types
+// ============================================================================
+
+/**
+ * Type guard for DiffNew (kind: "N") - entity exists in truth but not in merged.
+ * Indicates something was added in the truth that the merge didn't produce.
+ */
+function isDiffNew(d: Diff<unknown>): d is DiffNew<unknown> {
+  return d.kind === 'N';
+}
+
+/**
+ * Type guard for DiffDeleted (kind: "D") - entity exists in merged but not in truth.
+ * Indicates something extra in merged that shouldn't be there.
+ */
+function isDiffDeleted(d: Diff<unknown>): d is DiffDeleted<unknown> {
+  return d.kind === 'D';
+}
+
+/**
+ * Type guard for DiffEdit (kind: "E") - entity exists in both but values differ.
+ * Indicates a field value mismatch between merged and truth.
+ */
+function isDiffEdit(d: Diff<unknown>): d is DiffEdit<unknown> {
+  return d.kind === 'E';
+}
+
+/**
+ * Type guard for DiffArray (kind: "A") - array-specific change at an index.
+ * Indicates an element-level change within an array.
+ */
+function isDiffArray(d: Diff<unknown>): d is DiffArray<unknown> {
+  return d.kind === 'A';
+}
 
 /**
  * Logger interface matching FastMCP's context log
@@ -45,18 +81,37 @@ export interface DriftCheckResult {
 }
 
 /**
- * State for tracking drift check frequency in production
+ * State for tracking drift check frequency per budget.
+ * Each budget tracks its own sync count and last drift check time
+ * to avoid race conditions when multiple budgets are accessed.
  */
 interface DriftCheckState {
   lastDriftCheckAt: Date | null;
   syncCount: number;
 }
 
-// Module-level state for drift check frequency
-const driftCheckState: DriftCheckState = {
-  lastDriftCheckAt: null,
-  syncCount: 0,
-};
+/**
+ * Per-budget drift check state.
+ * Using a Map keyed by budgetId ensures each budget tracks its own
+ * drift check frequency independently, preventing race conditions
+ * when multiple budgets are synced concurrently.
+ */
+const driftCheckStateByBudget = new Map<string, DriftCheckState>();
+
+/**
+ * Get or create drift check state for a specific budget.
+ */
+function getDriftCheckState(budgetId: string): DriftCheckState {
+  let state = driftCheckStateByBudget.get(budgetId);
+  if (state === undefined) {
+    state = {
+      lastDriftCheckAt: null,
+      syncCount: 0,
+    };
+    driftCheckStateByBudget.set(budgetId, state);
+  }
+  return state;
+}
 
 // ============================================================================
 // Environment Variable Helpers
@@ -136,9 +191,10 @@ export function getDriftCheckIntervalMinutes(): number {
  * Determine if a drift check should be performed based on frequency settings.
  * Call this before performing a drift check to respect rate limiting.
  *
+ * @param budgetId - The budget ID to check drift state for
  * @returns true if a drift check should be performed
  */
-export function shouldPerformDriftCheck(): boolean {
+export function shouldPerformDriftCheck(budgetId: string): boolean {
   if (!isDriftDetectionEnabled()) {
     return false;
   }
@@ -149,19 +205,22 @@ export function shouldPerformDriftCheck(): boolean {
     return false;
   }
 
-  // Increment sync count
-  driftCheckState.syncCount++;
+  // Get per-budget state
+  const state = getDriftCheckState(budgetId);
+
+  // Increment sync count for this budget
+  state.syncCount++;
 
   // Check sync count interval
   const syncInterval = getDriftCheckIntervalSyncs();
-  if (driftCheckState.syncCount % syncInterval === 0) {
+  if (state.syncCount % syncInterval === 0) {
     return true;
   }
 
   // Check time interval (if configured)
   const minuteInterval = getDriftCheckIntervalMinutes();
-  if (minuteInterval > 0 && driftCheckState.lastDriftCheckAt !== null) {
-    const elapsed = Date.now() - driftCheckState.lastDriftCheckAt.getTime();
+  if (minuteInterval > 0 && state.lastDriftCheckAt !== null) {
+    const elapsed = Date.now() - state.lastDriftCheckAt.getTime();
     const elapsedMinutes = elapsed / (1000 * 60);
     if (elapsedMinutes >= minuteInterval) {
       return true;
@@ -172,19 +231,29 @@ export function shouldPerformDriftCheck(): boolean {
 }
 
 /**
- * Record that a drift check was performed.
+ * Record that a drift check was performed for a specific budget.
  * Call this after completing a drift check.
+ *
+ * @param budgetId - The budget ID to record the drift check for
  */
-export function recordDriftCheck(): void {
-  driftCheckState.lastDriftCheckAt = new Date();
+export function recordDriftCheck(budgetId: string): void {
+  const state = getDriftCheckState(budgetId);
+  state.lastDriftCheckAt = new Date();
 }
 
 /**
  * Reset drift check state (useful for testing).
+ *
+ * @param budgetId - Optional budget ID to reset. If not provided, resets all budgets.
  */
-export function resetDriftCheckState(): void {
-  driftCheckState.lastDriftCheckAt = null;
-  driftCheckState.syncCount = 0;
+export function resetDriftCheckState(budgetId?: string): void {
+  if (budgetId !== undefined) {
+    // Reset specific budget
+    driftCheckStateByBudget.delete(budgetId);
+  } else {
+    // Reset all budgets
+    driftCheckStateByBudget.clear();
+  }
 }
 
 /**
@@ -351,30 +420,29 @@ export function logDriftCheckResult(
     if (d === undefined) continue;
 
     const path = formatDiffPath(d);
-    const kind = d.kind;
 
-    switch (kind) {
-      case 'N': // New in truth (missing in merged)
-        log.error(`  [${i + 1}] MISSING: ${path}`, {
-          truthValue: 'rhs' in d ? d.rhs : undefined,
-        });
-        break;
-      case 'D': // Deleted in truth (extra in merged)
-        log.error(`  [${i + 1}] EXTRA: ${path}`, {
-          mergedValue: 'lhs' in d ? d.lhs : undefined,
-        });
-        break;
-      case 'E': // Edited (value differs)
-        log.error(`  [${i + 1}] DIFFERS: ${path}`, {
-          merged: 'lhs' in d ? d.lhs : undefined,
-          truth: 'rhs' in d ? d.rhs : undefined,
-        });
-        break;
-      case 'A': // Array change
-        log.error(`  [${i + 1}] ARRAY CHANGE: ${path}[${d.index}]`, {
-          item: d.item,
-        });
-        break;
+    // Use type guards for proper type narrowing
+    if (isDiffNew(d)) {
+      // New in truth (missing in merged)
+      log.error(`  [${i + 1}] MISSING: ${path}`, {
+        truthValue: d.rhs,
+      });
+    } else if (isDiffDeleted(d)) {
+      // Deleted in truth (extra in merged)
+      log.error(`  [${i + 1}] EXTRA: ${path}`, {
+        mergedValue: d.lhs,
+      });
+    } else if (isDiffEdit(d)) {
+      // Edited (value differs)
+      log.error(`  [${i + 1}] DIFFERS: ${path}`, {
+        merged: d.lhs,
+        truth: d.rhs,
+      });
+    } else if (isDiffArray(d)) {
+      // Array change
+      log.error(`  [${i + 1}] ARRAY CHANGE: ${path}[${d.index}]`, {
+        item: d.item,
+      });
     }
   }
 
