@@ -28,11 +28,15 @@
     "ts-check": "tsc --noEmit",
     "signal:serial": "bun run ts-check; bun run lint; bun run prettier-check",
     "signal": "bun run signal:serial",
-    "prepare": "husky",
+    "prepare": "husky && npx @justinhaaheim/version-manager --no-fail",
     "dynamic-version": "npx @justinhaaheim/version-manager",
     "dynamic-version:install": "npx @justinhaaheim/version-manager install",
     "dynamic-version:install-scripts": "npx @justinhaaheim/version-manager install-scripts",
-    "dynamic-version:generate": "npx @justinhaaheim/version-manager"
+    "dynamic-version:generate": "npx @justinhaaheim/version-manager",
+    "prebuild": "npx @justinhaaheim/version-manager",
+    "predev": "npx @justinhaaheim/version-manager",
+    "presignal": "npx @justinhaaheim/version-manager",
+    "prestart": "npx @justinhaaheim/version-manager"
   },
   "keywords": [
     "fastmcp",
