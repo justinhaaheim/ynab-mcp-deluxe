@@ -1,0 +1,2 @@
+# Dynamic version generator
+npx @justinhaaheim/version-manager --git-hook
