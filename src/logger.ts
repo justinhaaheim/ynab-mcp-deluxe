@@ -89,6 +89,25 @@ interface ContextLog {
 }
 
 /**
+ * File-only logger for use when there's no context logger available.
+ * Writes directly to the pino log file.
+ */
+export const fileLogger: ContextLog = {
+  debug(message: string, data?: unknown): void {
+    pinoLogger.debug(data as Record<string, unknown> | undefined, message);
+  },
+  error(message: string, data?: unknown): void {
+    pinoLogger.error(data as Record<string, unknown> | undefined, message);
+  },
+  info(message: string, data?: unknown): void {
+    pinoLogger.info(data as Record<string, unknown> | undefined, message);
+  },
+  warn(message: string, data?: unknown): void {
+    pinoLogger.warn(data as Record<string, unknown> | undefined, message);
+  },
+};
+
+/**
  * Create a combined logger that writes to both the file logger and a context logger.
  * This ensures logs are visible both in `bun run logs` and in MCP clients that surface context logs.
  *
@@ -120,25 +139,6 @@ export function createCombinedLogger(contextLog: ContextLog): ContextLog {
     },
   };
 }
-
-/**
- * File-only logger for use when there's no context logger available.
- * Writes directly to the pino log file.
- */
-export const fileLogger: ContextLog = {
-  debug(message: string, data?: unknown): void {
-    pinoLogger.debug(data as Record<string, unknown> | undefined, message);
-  },
-  error(message: string, data?: unknown): void {
-    pinoLogger.error(data as Record<string, unknown> | undefined, message);
-  },
-  info(message: string, data?: unknown): void {
-    pinoLogger.info(data as Record<string, unknown> | undefined, message);
-  },
-  warn(message: string, data?: unknown): void {
-    pinoLogger.warn(data as Record<string, unknown> | undefined, message);
-  },
-};
 
 /**
  * Get the glob pattern for log files.
