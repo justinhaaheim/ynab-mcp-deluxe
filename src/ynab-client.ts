@@ -444,7 +444,7 @@ class YnabClient {
       existingBudget !== undefined &&
       previousBudgetDetail !== undefined &&
       isDriftDetectionEnabled() &&
-      shouldPerformDriftCheck()
+      shouldPerformDriftCheck(budgetId)
     ) {
       // Fetch delta and merge for drift comparison
       const previousServerKnowledge = existingBudget.serverKnowledge;
@@ -565,7 +565,7 @@ class YnabClient {
       );
 
       logDriftCheckResult(driftResult, budgetId, log);
-      recordDriftCheck();
+      recordDriftCheck(budgetId);
 
       log.debug('Drift check timing', {compareDurationMs});
 

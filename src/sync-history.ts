@@ -37,10 +37,33 @@ export function getSyncHistoryBaseDir(): string {
 }
 
 /**
+ * Validate that a budgetId is safe to use in file paths.
+ * YNAB budget IDs are UUIDs (alphanumeric with hyphens).
+ * This prevents path traversal attacks with malicious budgetId values.
+ *
+ * @param budgetId - The budget ID to validate
+ * @returns true if the budgetId is safe for use in paths
+ */
+export function isValidBudgetIdForPath(budgetId: string): boolean {
+  // YNAB budget IDs are UUIDs: alphanumeric characters and hyphens only
+  // Example: "12345678-1234-1234-1234-123456789abc"
+  // Reject empty strings, path separators, dots, and other special characters
+  return /^[a-zA-Z0-9-]+$/.test(budgetId) && budgetId.length > 0;
+}
+
+/**
  * Get the sync history directory for a specific budget.
  * ~/.config/ynab-mcp-deluxe/sync-history/[budgetId]/
+ *
+ * @param budgetId - The budget ID (must be a valid UUID format)
+ * @throws Error if budgetId contains invalid characters (path traversal protection)
  */
 export function getSyncHistoryDir(budgetId: string): string {
+  if (!isValidBudgetIdForPath(budgetId)) {
+    throw new Error(
+      `Invalid budgetId for file path: "${budgetId}". Budget IDs must contain only alphanumeric characters and hyphens.`,
+    );
+  }
   return join(getSyncHistoryBaseDir(), budgetId);
 }
 
