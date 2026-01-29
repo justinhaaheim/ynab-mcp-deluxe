@@ -66,8 +66,13 @@ export function rebuildLookupMaps(localBudget: LocalBudget): void {
   }
 
   // Subtransaction maps (for O(1) joins during enrichment)
+  // Guard against null/undefined transaction_id (defensive against malformed API responses)
   localBudget.subtransactionsByTransactionId.clear();
   for (const sub of localBudget.subtransactions) {
+    // Skip orphaned subtransactions with missing transaction_id
+    if (sub.transaction_id === null || sub.transaction_id === undefined) {
+      continue;
+    }
     const existing = localBudget.subtransactionsByTransactionId.get(
       sub.transaction_id,
     );
@@ -78,8 +83,16 @@ export function rebuildLookupMaps(localBudget: LocalBudget): void {
     }
   }
 
+  // Guard against null/undefined scheduled_transaction_id (defensive against malformed API responses)
   localBudget.scheduledSubtransactionsByScheduledTransactionId.clear();
   for (const sub of localBudget.scheduledSubtransactions) {
+    // Skip orphaned scheduled subtransactions with missing scheduled_transaction_id
+    if (
+      sub.scheduled_transaction_id === null ||
+      sub.scheduled_transaction_id === undefined
+    ) {
+      continue;
+    }
     const existing =
       localBudget.scheduledSubtransactionsByScheduledTransactionId.get(
         sub.scheduled_transaction_id,
