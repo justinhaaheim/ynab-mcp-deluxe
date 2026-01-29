@@ -82,12 +82,18 @@ export interface DriftCheckResult {
 
 /**
  * State for tracking drift check frequency per budget.
- * Each budget tracks its own sync count and last drift check time
+ * Each budget tracks its own evaluation count and last drift check time
  * to avoid race conditions when multiple budgets are accessed.
  */
 interface DriftCheckState {
+  /**
+   * Count of how many times shouldPerformDriftCheck() has been called for this budget.
+   * This is NOT a count of actual syncs - it tracks how many times we've evaluated
+   * whether to perform a drift check. A drift check is triggered when this count
+   * reaches a multiple of the configured interval (YNAB_DRIFT_CHECK_INTERVAL_SYNCS).
+   */
+  checkEvaluationCount: number;
   lastDriftCheckAt: Date | null;
-  syncCount: number;
 }
 
 /**
@@ -105,8 +111,8 @@ function getDriftCheckState(budgetId: string): DriftCheckState {
   let state = driftCheckStateByBudget.get(budgetId);
   if (state === undefined) {
     state = {
+      checkEvaluationCount: 0,
       lastDriftCheckAt: null,
-      syncCount: 0,
     };
     driftCheckStateByBudget.set(budgetId, state);
   }
@@ -208,12 +214,15 @@ export function shouldPerformDriftCheck(budgetId: string): boolean {
   // Get per-budget state
   const state = getDriftCheckState(budgetId);
 
-  // Increment sync count for this budget
-  state.syncCount++;
+  // Increment the evaluation count for this budget.
+  // This tracks how many times we've checked whether to perform a drift check,
+  // NOT how many actual syncs have occurred. A drift check is triggered when
+  // this count reaches a multiple of the configured interval.
+  state.checkEvaluationCount++;
 
-  // Check sync count interval
-  const syncInterval = getDriftCheckIntervalSyncs();
-  if (state.syncCount % syncInterval === 0) {
+  // Check if we've reached the interval threshold
+  const checkInterval = getDriftCheckIntervalSyncs();
+  if (state.checkEvaluationCount % checkInterval === 0) {
     return true;
   }
 
