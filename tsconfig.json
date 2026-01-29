@@ -42,5 +42,5 @@
     "allowJs": true,
     "checkJs": true
   },
-  "include": ["src", "vitest.config.ts"]
+  "include": ["src", "vitest.config.ts", "dynamic-version.local.d.ts"]
 }
