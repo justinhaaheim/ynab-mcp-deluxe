@@ -255,7 +255,7 @@ The more frequently you reconcile, the easier it is to find discrepancies.
 
    - Imported transactions are initially "unapproved"
    - Shown with an orange indicator
-   - Need review before becoming part of the budget
+   - **Note:** Transactions affect the budget immediately, regardless of approval status. If categorized, they impact that category's balance. If uncategorized, their amount is deducted from "Ready to Assign."
 
 3. **Assign Categories**
 
@@ -264,9 +264,9 @@ The more frequently you reconcile, the easier it is to find discrepancies.
    - YNAB learns from patterns and suggests categories for known payees
 
 4. **Approve Transactions**
-   - Confirms the transaction is correct
+   - Confirms the transaction has been reviewed and is correct
    - Removes the "unapproved" indicator
-   - Transaction now affects category balances
+   - Serves as a workflow checkpoint, not a budget activation step
 
 #### Categorization Challenges
 
@@ -1129,4 +1129,4 @@ YNAB uses "milliunits" for all currency amounts:
 
 ---
 
-_Document created for YNAB LLM Assistant project. Last updated: 2026-01-19_
+_Document created for YNAB LLM Assistant project. Last updated: 2026-01-29_
