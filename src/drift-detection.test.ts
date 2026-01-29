@@ -262,30 +262,30 @@ describe('shouldPerformDriftCheck', () => {
     expect(shouldPerformDriftCheck(testBudgetId)).toBe(false);
   });
 
-  it('returns true on first sync with default interval of 1', () => {
+  it('returns true on first call with default interval of 1', () => {
     delete process.env['YNAB_DRIFT_CHECK_INTERVAL_SYNCS'];
     expect(shouldPerformDriftCheck(testBudgetId)).toBe(true);
   });
 
-  it('returns true every sync when interval is 1', () => {
+  it('returns true every call when interval is 1', () => {
     process.env['YNAB_DRIFT_CHECK_INTERVAL_SYNCS'] = '1';
     expect(shouldPerformDriftCheck(testBudgetId)).toBe(true);
     expect(shouldPerformDriftCheck(testBudgetId)).toBe(true);
     expect(shouldPerformDriftCheck(testBudgetId)).toBe(true);
   });
 
-  it('returns true every N syncs when interval is N', () => {
+  it('returns true every N calls when interval is N', () => {
     process.env['YNAB_DRIFT_CHECK_INTERVAL_SYNCS'] = '3';
 
-    // Syncs 1, 2 should return false, sync 3 should return true
-    expect(shouldPerformDriftCheck(testBudgetId)).toBe(false); // sync 1
-    expect(shouldPerformDriftCheck(testBudgetId)).toBe(false); // sync 2
-    expect(shouldPerformDriftCheck(testBudgetId)).toBe(true); // sync 3
+    // Calls 1, 2 should return false, call 3 should return true
+    expect(shouldPerformDriftCheck(testBudgetId)).toBe(false); // call 1
+    expect(shouldPerformDriftCheck(testBudgetId)).toBe(false); // call 2
+    expect(shouldPerformDriftCheck(testBudgetId)).toBe(true); // call 3
 
     // Continue pattern
-    expect(shouldPerformDriftCheck(testBudgetId)).toBe(false); // sync 4
-    expect(shouldPerformDriftCheck(testBudgetId)).toBe(false); // sync 5
-    expect(shouldPerformDriftCheck(testBudgetId)).toBe(true); // sync 6
+    expect(shouldPerformDriftCheck(testBudgetId)).toBe(false); // call 4
+    expect(shouldPerformDriftCheck(testBudgetId)).toBe(false); // call 5
+    expect(shouldPerformDriftCheck(testBudgetId)).toBe(true); // call 6
   });
 
   it('tracks state independently per budget', () => {
@@ -294,17 +294,17 @@ describe('shouldPerformDriftCheck', () => {
     const budgetA = 'budget-a';
     const budgetB = 'budget-b';
 
-    // Budget A: sync 1 (false), sync 2 (true)
-    expect(shouldPerformDriftCheck(budgetA)).toBe(false); // A sync 1
-    expect(shouldPerformDriftCheck(budgetA)).toBe(true); // A sync 2
+    // Budget A: call 1 (false), call 2 (true)
+    expect(shouldPerformDriftCheck(budgetA)).toBe(false); // A call 1
+    expect(shouldPerformDriftCheck(budgetA)).toBe(true); // A call 2
 
     // Budget B starts fresh, not affected by A's state
-    expect(shouldPerformDriftCheck(budgetB)).toBe(false); // B sync 1
-    expect(shouldPerformDriftCheck(budgetB)).toBe(true); // B sync 2
+    expect(shouldPerformDriftCheck(budgetB)).toBe(false); // B call 1
+    expect(shouldPerformDriftCheck(budgetB)).toBe(true); // B call 2
 
     // Budget A continues from its own state
-    expect(shouldPerformDriftCheck(budgetA)).toBe(false); // A sync 3
-    expect(shouldPerformDriftCheck(budgetA)).toBe(true); // A sync 4
+    expect(shouldPerformDriftCheck(budgetA)).toBe(false); // A call 3
+    expect(shouldPerformDriftCheck(budgetA)).toBe(true); // A call 4
   });
 });
 
@@ -323,20 +323,20 @@ describe('recordDriftCheck and resetDriftCheckState', () => {
     expect(() => recordDriftCheck(testBudgetId)).not.toThrow();
   });
 
-  it('resetDriftCheckState resets sync count for all budgets', () => {
+  it('resetDriftCheckState resets evaluation count for all budgets', () => {
     const originalEnv = process.env;
     process.env = {...originalEnv};
     process.env['YNAB_DRIFT_CHECK_INTERVAL_SYNCS'] = '3';
 
-    // Accumulate some syncs
-    shouldPerformDriftCheck(testBudgetId); // sync 1
-    shouldPerformDriftCheck(testBudgetId); // sync 2
+    // Accumulate some calls
+    shouldPerformDriftCheck(testBudgetId); // call 1
+    shouldPerformDriftCheck(testBudgetId); // call 2
 
     // Reset all budgets
     resetDriftCheckState();
 
     // Should start fresh
-    expect(shouldPerformDriftCheck(testBudgetId)).toBe(false); // sync 1 again
+    expect(shouldPerformDriftCheck(testBudgetId)).toBe(false); // call 1 again
 
     process.env = originalEnv;
   });
@@ -349,20 +349,20 @@ describe('recordDriftCheck and resetDriftCheckState', () => {
     const budgetA = 'budget-a';
     const budgetB = 'budget-b';
 
-    // Accumulate syncs for both budgets
-    shouldPerformDriftCheck(budgetA); // A sync 1
-    shouldPerformDriftCheck(budgetA); // A sync 2
-    shouldPerformDriftCheck(budgetB); // B sync 1
-    shouldPerformDriftCheck(budgetB); // B sync 2
+    // Accumulate calls for both budgets
+    shouldPerformDriftCheck(budgetA); // A call 1
+    shouldPerformDriftCheck(budgetA); // A call 2
+    shouldPerformDriftCheck(budgetB); // B call 1
+    shouldPerformDriftCheck(budgetB); // B call 2
 
     // Reset only budget A
     resetDriftCheckState(budgetA);
 
     // Budget A should start fresh
-    expect(shouldPerformDriftCheck(budgetA)).toBe(false); // A sync 1 again
+    expect(shouldPerformDriftCheck(budgetA)).toBe(false); // A call 1 again
 
-    // Budget B should continue from its previous state (was at sync 2, now sync 3 = true)
-    expect(shouldPerformDriftCheck(budgetB)).toBe(true); // B sync 3
+    // Budget B should continue from its previous state (was at call 2, now call 3 = true)
+    expect(shouldPerformDriftCheck(budgetB)).toBe(true); // B call 3
 
     process.env = originalEnv;
   });
