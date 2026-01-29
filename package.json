@@ -1,12 +1,11 @@
 {
   "name": "ynab-mcp-deluxe",
-  "version": "1.0.0",
+  "version": "0.1.1",
   "main": "dist/index.js",
   "description": "MCP server for YNAB integration",
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "build": "tsc",
     "start": "bun src/server.ts",
     "start:env": "npx @dotenvx/dotenvx run --convention=nextjs --verbose -- bun src/server.ts",
     "start:read-only": "YNAB_READ_ONLY=true bun src/server.ts",

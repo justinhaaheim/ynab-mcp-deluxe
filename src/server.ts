@@ -28,6 +28,7 @@ import {
 } from 'ynab';
 import {z} from 'zod';
 
+import {baseVersion, dynamicVersion} from '../dynamic-version.local.json';
 import {backupBudget} from './backup.js';
 import {
   applyJMESPath,
@@ -42,6 +43,9 @@ import {
 import {logger} from './logger.js';
 import {clearSyncHistory} from './sync-history.js';
 import {isReadOnlyMode, ynabClient} from './ynab-client.js';
+
+const resolvedVersion =
+  process.env['NODE_ENV'] === 'development' ? dynamicVersion : baseVersion;
 
 // SDK-derived Zod schemas (single source of truth for YNAB enums)
 const clearedStatusValues = Object.values(TransactionClearedStatus) as [
@@ -62,12 +66,12 @@ const FlagColorInputSchema = z.enum(
 );
 
 const server = new FastMCP({
-  instructions: `MCP server for YNAB budget management.
-
-Caching: Data (accounts, categories, payees) is cached to minimize API calls and respect YNAB's rate limit (200 requests/hour). Cache is automatically invalidated after write operations. Use force_sync: true on any read tool to manually invalidate the cache and fetch fresh data.`,
+  instructions: `MCP server for You Need A Budget (YNAB) budget management.`,
+  // Caching: Data (accounts, categories, payees) is cached to minimize API calls and respect YNAB's rate limit (200 requests/hour). Cache is automatically invalidated after write operations. Use force_sync: true on any read tool to manually invalidate the cache and fetch fresh data.`,
   logger,
   name: 'YNAB MCP Server',
-  version: '1.0.0',
+  // @ts-ignore ts(2322) - It should be fine to pass a semver compatible string here
+  version: resolvedVersion,
 });
 
 // ============================================================================
