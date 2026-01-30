@@ -5,6 +5,9 @@
   "description": "You Need A Budget (YNAB) MCP server for budget automation, help with categorization, reconciliation, etc.",
   "type": "module",
   "license": "MIT",
+  "bin": {
+    "ynab-mcp-deluxe": "./bin/server.sh"
+  },
   "scripts": {
     "start": "npx tsx src/server.ts",
     "start:read-only": "YNAB_READ_ONLY=true npx tsx src/server.ts",
