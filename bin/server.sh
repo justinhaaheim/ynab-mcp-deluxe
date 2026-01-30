@@ -1,2 +1,2 @@
 #!/bin/sh
-tsx src/server.ts "$@"
+tsx "$(dirname "$0")/../src/server.ts" "$@"
