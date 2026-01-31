@@ -45,8 +45,9 @@ import {logger} from './logger.js';
 import {clearSyncHistory} from './sync-history.js';
 import {isReadOnlyMode, ynabClient} from './ynab-client.js';
 
-const resolvedVersion =
-  process.env['NODE_ENV'] === 'development' ? dynamicVersion : baseVersion;
+// const resolvedVersion =
+//   process.env['NODE_ENV'] === 'development' ? dynamicVersion : baseVersion;
+const resolvedVersion = dynamicVersion;
 
 // SDK-derived Zod schemas (single source of truth for YNAB enums)
 const clearedStatusValues = Object.values(TransactionClearedStatus) as [
