@@ -132,3 +132,4 @@ reference-projects/
 
 # bv (beads viewer) local config and caches
 .bv/
+vendor-analysis/
