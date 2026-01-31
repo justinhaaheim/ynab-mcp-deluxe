@@ -99,7 +99,7 @@
       {
         "hooks": [
           {
-            "command": "bd prime",
+            "command": "if command -v bd >/dev/null 2>&1; then bd prime; fi",
             "type": "command"
           }
         ],
