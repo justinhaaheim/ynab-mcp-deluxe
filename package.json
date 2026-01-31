@@ -6,7 +6,7 @@
   "type": "module",
   "license": "MIT",
   "bin": {
-    "ynab-mcp-deluxe": "./bin/server.sh"
+    "ynab-mcp-deluxe": "./src/server.ts"
   },
   "scripts": {
     "start": "npx tsx src/server.ts",
