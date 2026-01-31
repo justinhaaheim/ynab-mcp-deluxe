@@ -1,6 +1,6 @@
 {
   "name": "ynab-mcp-deluxe",
-  "version": "0.1.2",
+  "version": "0.1.9",
   "main": "dist/index.js",
   "description": "You Need A Budget (YNAB) MCP server for budget automation, help with categorization, reconciliation, etc.",
   "type": "module",
