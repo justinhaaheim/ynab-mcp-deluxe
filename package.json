@@ -1,13 +1,17 @@
 {
   "name": "ynab-mcp-deluxe",
   "version": "0.1.9",
-  "main": "dist/index.js",
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
   "description": "You Need A Budget (YNAB) MCP server for budget automation, help with categorization, reconciliation, etc.",
   "type": "module",
   "license": "MIT",
   "bin": {
-    "ynab-mcp-deluxe": "./src/server.ts"
+    "ynab-mcp-deluxe": "./dist/server.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "start": "npx tsx src/server.ts",
     "start:read-only": "YNAB_READ_ONLY=true npx tsx src/server.ts",
@@ -37,9 +41,12 @@
     "dynamic-version:install-scripts": "npx @justinhaaheim/version-manager install-scripts",
     "dynamic-version:generate": "npx @justinhaaheim/version-manager",
     "prebuild": "npx @justinhaaheim/version-manager",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/server.js",
+    "build:clean": "rm -rf dist && bun run build",
     "predev": "npx @justinhaaheim/version-manager",
     "presignal": "npx @justinhaaheim/version-manager",
-    "prestart": "npx @justinhaaheim/version-manager"
+    "prestart": "npx @justinhaaheim/version-manager",
+    "prepublishOnly": "bun run build:clean"
   },
   "keywords": [
     "fastmcp",
@@ -65,11 +72,11 @@
     "pino": "10.3.0",
     "pino-roll": "4.0.0",
     "ynab": "2.10.0",
-    "tsx": "^4.19.4",
     "zod": "^3.25"
   },
   "devDependencies": {
     "@faker-js/faker": "^10.2.0",
+    "tsx": "^4.19.4",
     "@tsconfig/node22": "^22.0.1",
     "@types/deep-diff": "^1.0.5",
     "@types/node": "^25.0.9",

@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * YNAB MCP Server
  *
@@ -29,7 +29,7 @@ import {
 } from 'ynab';
 import {z} from 'zod';
 
-import {baseVersion, dynamicVersion} from '../dynamic-version.local.json';
+import packageJson from '../package.json' with {type: 'json'};
 import {backupBudget} from './backup.js';
 import {
   applyJMESPath,
@@ -45,9 +45,7 @@ import {logger} from './logger.js';
 import {clearSyncHistory} from './sync-history.js';
 import {isReadOnlyMode, ynabClient} from './ynab-client.js';
 
-// const resolvedVersion =
-//   process.env['NODE_ENV'] === 'development' ? dynamicVersion : baseVersion;
-const resolvedVersion = dynamicVersion;
+const resolvedVersion = packageJson.version;
 
 // SDK-derived Zod schemas (single source of truth for YNAB enums)
 const clearedStatusValues = Object.values(TransactionClearedStatus) as [
