@@ -21,7 +21,7 @@
     "dev:mock": "npx @dotenvx/dotenvx run --convention=nextjs --verbose -- fastmcp dev src/server-with-mocks.ts",
     "dev:inspect": "npx @dotenvx/dotenvx run --convention=nextjs --verbose -- fastmcp inspect src/server.ts",
     "dev:inspect:mock": "npx @dotenvx/dotenvx run --convention=nextjs --verbose -- fastmcp inspect src/server-with-mocks.ts",
-    "prepare": "(husky || true) && (npx @justinhaaheim/version-manager --no-fail || true) && bun run build",
+    "prepare": "(husky || true) && (npx @justinhaaheim/version-manager --no-fail || true)",
     "build": "tsc -p tsconfig.build.json && chmod +x dist/server.js",
     "build:clean": "rm -rf dist && bun run build",
     "test": "vitest run",
