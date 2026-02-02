@@ -1,0 +1,162 @@
+# Server Payload Logging Feature
+
+## Goal
+
+Create comprehensive logging of all MCP tool requests/responses and YNAB API calls to enable debugging and auditing during alpha development.
+
+## Key Findings from Exploration
+
+1. **FastMCP doesn't have built-in middleware** - No hooks for intercepting requests
+2. **Existing Pino logger** writes to `~/.config/ynab-mcp-deluxe/logs/` with daily rotation
+3. **Backup pattern** demonstrates file writing to config directory
+4. **YNAB SDK** accepts custom `fetchApi` option - we can intercept HTTP calls!
+
+## Design Decision
+
+**Recommended Approach: Dual-layer logging**
+
+1. **MCP Tool Layer**: Wrapper function around tool execution
+2. **YNAB HTTP Layer**: Custom fetch wrapper passed to YNAB SDK
+
+This captures:
+
+- What the AI client sent (tool name, arguments)
+- What we returned (success/error, response data)
+- What we sent to YNAB API (HTTP requests)
+- What YNAB returned (HTTP responses)
+
+## File Structure
+
+```
+~/.config/ynab-mcp-deluxe/
+├── logs/                    # Existing Pino logs (structured JSON)
+│   └── server.2026-02-02.1.log
+├── payloads/                # NEW: Full request/response payloads
+│   └── 2026-02-02/          # Organized by date
+│       ├── 001_14-32-15_query_transactions_req.json
+│       ├── 001_14-32-16_ynab_get-budget_req.json
+│       ├── 001_14-32-17_ynab_get-budget_res.json
+│       └── 001_14-32-18_query_transactions_res.json
+└── backups/                 # Existing backups
+```
+
+### Filename Format
+
+`{sequence}_{time}_{layer}_{operation}_{direction}.json`
+
+- **sequence**: 3-digit number per session (001, 002, ...)
+- **time**: HH-mm-ss
+- **layer**: `mcp` or `ynab`
+- **operation**: tool name or API endpoint
+- **direction**: `req` or `res`
+
+## Payload Structure
+
+### MCP Request
+
+```json
+{
+  "timestamp": "2026-02-02T14:32:15.123Z",
+  "requestId": "abc-123",
+  "tool": "query_transactions",
+  "arguments": {
+    /* full args */
+  }
+}
+```
+
+### MCP Response
+
+```json
+{
+  "timestamp": "2026-02-02T14:32:18.456Z",
+  "requestId": "abc-123",
+  "tool": "query_transactions",
+  "durationMs": 3333,
+  "success": true,
+  "response": {
+    /* full response or error */
+  }
+}
+```
+
+### YNAB HTTP Request
+
+```json
+{
+  "timestamp": "2026-02-02T14:32:16.000Z",
+  "method": "GET",
+  "url": "https://api.ynab.com/v1/budgets/xxx",
+  "headers": {
+    /* sanitized - no auth token */
+  }
+}
+```
+
+### YNAB HTTP Response
+
+```json
+{
+  "timestamp": "2026-02-02T14:32:17.500Z",
+  "method": "GET",
+  "url": "https://api.ynab.com/v1/budgets/xxx",
+  "status": 200,
+  "durationMs": 1500,
+  "headers": {
+    /* response headers */
+  },
+  "body": {
+    /* full JSON body */
+  }
+}
+```
+
+## Implementation Plan
+
+### Phase 1: Create Payload Logger Module
+
+- [ ] Create `src/payload-logger.ts`
+- [ ] Implement file writing with date-based directories
+- [ ] Add sequence counter for ordering
+- [ ] Add environment variable toggle: `YNAB_PAYLOAD_LOGGING` (default: `true`)
+
+### Phase 2: MCP Tool Wrapper
+
+- [ ] Create `wrapToolWithLogging()` higher-order function
+- [ ] Apply to all tools in server.ts
+- [ ] Log request args and response/error
+
+### Phase 3: YNAB HTTP Interceptor
+
+- [ ] Create custom fetch wrapper
+- [ ] Pass to YNAB SDK via `fetchApi` option
+- [ ] Log sanitized requests (no auth token in logs)
+- [ ] Log full responses
+
+### Phase 4: Update CLAUDE.md
+
+- [ ] Document new env var
+- [ ] Document payload file locations
+
+## Environment Variables
+
+| Variable               | Default                              | Description                    |
+| ---------------------- | ------------------------------------ | ------------------------------ |
+| `YNAB_PAYLOAD_LOGGING` | `true`                               | Enable/disable payload logging |
+| `YNAB_PAYLOAD_DIR`     | `~/.config/ynab-mcp-deluxe/payloads` | Override payload directory     |
+
+## Questions / Decisions
+
+- [x] **Folder name**: Using `payloads/` as suggested
+- [x] **Default on**: Yes, default to ON during alpha
+- [x] **Organization**: Date-based subdirectories for easy cleanup
+- [ ] **Retention**: Should we auto-prune old payload logs? (Suggest: 7 days like other logs)
+
+## Progress
+
+- [ ] Design approved by user
+- [ ] Payload logger module created
+- [ ] MCP tool wrapper implemented
+- [ ] YNAB HTTP interceptor implemented
+- [ ] Tests added
+- [ ] Documentation updated
