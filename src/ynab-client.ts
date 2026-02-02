@@ -52,6 +52,12 @@ import {
 import {saveDriftSnapshot, shouldSampleDrift} from './drift-snapshot.js';
 import {buildLocalBudget, mergeDelta} from './local-budget.js';
 import {createCombinedLogger, fileLogger} from './logger.js';
+import {
+  validateCreatedAccount,
+  validateCreateResponse,
+  validateSingleEntityResponse,
+  validateUpdateResponse,
+} from './mutation-validation.js';
 import {persistSyncResponse} from './sync-history.js';
 import {ApiSyncProvider} from './sync-providers.js';
 
@@ -1216,6 +1222,10 @@ class YnabClient {
     // and transactions array for updated ones
     const updatedTxs = response.data.transactions ?? [];
 
+    // Validate that all requested IDs are present in the response
+    const requestedIds = updates.map((u) => u.id);
+    validateUpdateResponse('update_transactions', requestedIds, updatedTxs);
+
     // Always invalidate cache after write operations to ensure consistency
     // (payees may be created, and we want fresh data for enrichment)
     this.markNeedsSync(budgetId);
@@ -1628,6 +1638,14 @@ class YnabClient {
     const createdTransactions = response.data.transactions ?? [];
     const duplicateImportIds = response.data.duplicate_import_ids ?? [];
 
+    // Validate that all requested transactions are accounted for (created or duplicate)
+    validateCreateResponse(
+      'create_transactions',
+      transactions.length,
+      createdTransactions.length,
+      duplicateImportIds.length,
+    );
+
     const newCache = await this.getLocalBudget(budgetId);
     const enriched = createdTransactions.map((t) =>
       this.enrichTransaction(t, newCache),
@@ -1654,6 +1672,13 @@ class YnabClient {
     const response = await api.transactions.deleteTransaction(
       budgetId,
       transactionId,
+    );
+
+    // Validate that the deleted transaction ID matches what we requested
+    validateSingleEntityResponse(
+      'delete_transaction',
+      transactionId,
+      response.data.transaction.id,
     );
 
     return {
@@ -1707,6 +1732,10 @@ class YnabClient {
     this.markNeedsSync(budgetId);
 
     const account = response.data.account;
+
+    // Validate that the created account matches what we requested
+    validateCreatedAccount('create_account', name, type, account);
+
     const cache = await this.getLocalBudget(budgetId);
 
     return {
@@ -1758,6 +1787,9 @@ class YnabClient {
     );
 
     const c = response.data.category;
+
+    // Validate that the updated category ID matches what we requested
+    validateSingleEntityResponse('update_category_budget', categoryId, c.id);
 
     return {
       activity: c.activity,

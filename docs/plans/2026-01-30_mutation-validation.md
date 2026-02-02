@@ -112,11 +112,35 @@ When validation fails:
 
 ## Status
 
-- [ ] Create mutation-validation.ts with helper functions
-- [ ] Add validation to updateTransactions
-- [ ] Add validation to createTransactions
-- [ ] Add validation to deleteTransaction
-- [ ] Add validation to createAccount
-- [ ] Add validation to updateCategoryBudget
-- [ ] Add tests for validation helpers
-- [ ] Run signal and fix any issues
+- [x] Create mutation-validation.ts with helper functions
+- [x] Add validation to updateTransactions
+- [x] Add validation to createTransactions
+- [x] Add validation to deleteTransaction
+- [x] Add validation to createAccount
+- [x] Add validation to updateCategoryBudget
+- [x] Add tests for validation helpers
+- [x] Run signal and fix any issues
+
+## Implementation Summary
+
+**Files Created:**
+
+- `src/mutation-validation.ts` - Validation helpers and `MutationValidationError` class
+- `src/mutation-validation.test.ts` - Unit tests for all validation functions (20 tests)
+
+**Files Modified:**
+
+- `src/ynab-client.ts` - Added validation calls to 5 mutation methods
+- `src/mocks/handlers.ts` - Updated MSW handlers to return responses matching requests (for test compatibility)
+
+**Validation Added:**
+
+| Method                 | Validation                                   |
+| ---------------------- | -------------------------------------------- |
+| `updateTransactions`   | All requested IDs present in response        |
+| `createTransactions`   | Created + duplicates = requested count       |
+| `deleteTransaction`    | Returned transaction ID matches requested ID |
+| `createAccount`        | Returned account name and type match request |
+| `updateCategoryBudget` | Returned category ID matches requested ID    |
+
+All 202 tests pass. Signal checks (TypeScript, ESLint, Prettier) pass.
