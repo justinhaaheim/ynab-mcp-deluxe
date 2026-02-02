@@ -115,28 +115,28 @@ This captures:
 
 ### Phase 1: Create Payload Logger Module
 
-- [ ] Create `src/payload-logger.ts`
-- [ ] Implement file writing with date-based directories
-- [ ] Add sequence counter for ordering
-- [ ] Add environment variable toggle: `YNAB_PAYLOAD_LOGGING` (default: `true`)
+- [x] Create `src/payload-logger.ts`
+- [x] Implement file writing with date-based directories
+- [x] Add sequence counter for ordering
+- [x] Add environment variable toggle: `YNAB_PAYLOAD_LOGGING` (default: `true`)
 
 ### Phase 2: MCP Tool Wrapper
 
-- [ ] Create `wrapToolWithLogging()` higher-order function
-- [ ] Apply to all tools in server.ts
-- [ ] Log request args and response/error
+- [x] Create `wrapToolWithLogging()` higher-order function in `src/tool-logging.ts`
+- [x] Apply to all tools in server.ts via `createLoggingToolAdder()`
+- [x] Log request args and response/error
 
 ### Phase 3: YNAB HTTP Interceptor
 
-- [ ] Create custom fetch wrapper
-- [ ] Pass to YNAB SDK via `fetchApi` option
-- [ ] Log sanitized requests (no auth token in logs)
-- [ ] Log full responses
+- [x] Create custom fetch wrapper in `src/fetch-interceptor.ts`
+- [x] Install globally via `installFetchInterceptor()` at server startup
+- [x] Log sanitized requests (no auth token in logs)
+- [x] Log full responses
 
 ### Phase 4: Update CLAUDE.md
 
-- [ ] Document new env var
-- [ ] Document payload file locations
+- [x] Document new env vars
+- [x] Document payload file locations in Architecture section
 
 ## Environment Variables
 
@@ -149,14 +149,17 @@ This captures:
 
 - [x] **Folder name**: Using `payloads/` as suggested
 - [x] **Default on**: Yes, default to ON during alpha
-- [x] **Organization**: Date-based subdirectories for easy cleanup
-- [ ] **Retention**: Should we auto-prune old payload logs? (Suggest: 7 days like other logs)
+- [x] **Organization**: Date-based subdirectories + session subdirectories
+- [x] **Retention**: Auto-purge code written for 30 days, but disabled by default (`YNAB_PAYLOAD_AUTO_PURGE=false`)
 
 ## Progress
 
-- [ ] Design approved by user
-- [ ] Payload logger module created
-- [ ] MCP tool wrapper implemented
+- [x] Design approved by user
+- [x] Payload logger module created (`src/payload-logger.ts`)
+- [x] MCP tool wrapper implemented (`src/tool-logging.ts`)
+- [x] YNAB HTTP interceptor implemented (`src/fetch-interceptor.ts`)
+- [x] Documentation updated (CLAUDE.md)
+- [x] All signal checks passing
 - [ ] YNAB HTTP interceptor implemented
 - [ ] Tests added
 - [ ] Documentation updated
