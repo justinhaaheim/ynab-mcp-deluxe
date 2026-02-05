@@ -144,7 +144,13 @@ export function createLoggingToolAdder(server: FastMCP) {
     tool: ToolDefinition<TParams>,
   ): void {
     const wrappedTool = wrapToolWithLogging(tool);
-    // @ts-expect-error - FastMCP types are complex, but this is correct at runtime
+    // TypeScript cannot verify this due to complex generic relationships:
+    // - FastMCP's Tool<T, Params> uses StandardSchemaV1 (from @standard-schema/spec)
+    // - Our ToolDefinition uses z.ZodType which implements StandardSchemaV1
+    // - FastMCP also has auth generics (FastMCPSessionAuth) that we don't track
+    // The types are compatible at runtime - Zod schemas satisfy StandardSchemaV1,
+    // and our simplified execute signature is a subset of FastMCP's union return type.
+    // @ts-expect-error - Safe: runtime types match, TypeScript can't verify complex generics
     server.addTool(wrappedTool);
   };
 }

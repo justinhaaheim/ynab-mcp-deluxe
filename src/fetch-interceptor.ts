@@ -174,11 +174,21 @@ function createLoggingFetch(baseFetch: typeof fetch): typeof fetch {
       let responseBody: unknown;
       try {
         responseBody = await responseClone.json();
-      } catch {
+      } catch (jsonError) {
         try {
           responseBody = await responseClone.text();
-        } catch {
-          responseBody = '[Unable to read response body]';
+        } catch (textError) {
+          responseBody = {
+            _parseError: 'Unable to read response body',
+            jsonError:
+              jsonError instanceof Error
+                ? jsonError.message
+                : String(jsonError),
+            textError:
+              textError instanceof Error
+                ? textError.message
+                : String(textError),
+          };
         }
       }
 
