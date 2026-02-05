@@ -5,75 +5,79 @@
 
 ## Projects Analyzed
 
-| Project | Type | Key Focus | Tools/Commands |
-|---------|------|-----------|----------------|
-| [stephendolan/ynab-cli](https://github.com/stephendolan/ynab-cli) | CLI + MCP | Developer UX, security | ~20 |
-| [dizzlkheinz/ynab-mcpb](https://github.com/dizzlkheinz/ynab-mcpb) | MCP Server | Receipt itemization, bank reconciliation | 29 |
-| [issmirnov/ynab-mcp-server](https://github.com/issmirnov/ynab-mcp-server) | MCP Server | Analytics, workflow automation | 18 |
-| [AbdallahAHO/ynab-tui](https://github.com/AbdallahAHO/ynab-tui) | TUI + CLI | AI categorization, payee management | N/A |
+| Project                                                                   | Type       | Key Focus                                | Tools/Commands |
+| ------------------------------------------------------------------------- | ---------- | ---------------------------------------- | -------------- |
+| [stephendolan/ynab-cli](https://github.com/stephendolan/ynab-cli)         | CLI + MCP  | Developer UX, security                   | ~20            |
+| [dizzlkheinz/ynab-mcpb](https://github.com/dizzlkheinz/ynab-mcpb)         | MCP Server | Receipt itemization, bank reconciliation | 29             |
+| [issmirnov/ynab-mcp-server](https://github.com/issmirnov/ynab-mcp-server) | MCP Server | Analytics, workflow automation           | 18             |
+| [AbdallahAHO/ynab-tui](https://github.com/AbdallahAHO/ynab-tui)           | TUI + CLI  | AI categorization, payee management      | N/A            |
 
 ---
 
 ## Summary: What Each Project Does Better
 
 ### ynab-cli (stephendolan)
-| Feature | Description | Priority |
-|---------|-------------|----------|
-| **OS Keychain Auth** | Stores token securely via `@napi-rs/keyring` instead of env vars | High |
-| **Default Budget** | Persist default budget in config, don't require `--budget` every time | Medium |
-| **Raw API Access** | `ynab api GET/POST <path>` escape hatch for any endpoint | Medium |
-| **Field Filtering** | `--fields id,date,amount` to limit output fields | Medium |
-| **Error Sanitization** | Redacts Bearer tokens from error messages | High |
-| **Dual Mode** | Single codebase supports both CLI and MCP server | Low |
+
+| Feature                | Description                                                           | Priority |
+| ---------------------- | --------------------------------------------------------------------- | -------- |
+| **OS Keychain Auth**   | Stores token securely via `@napi-rs/keyring` instead of env vars      | High     |
+| **Default Budget**     | Persist default budget in config, don't require `--budget` every time | Medium   |
+| **Raw API Access**     | `ynab api GET/POST <path>` escape hatch for any endpoint              | Medium   |
+| **Field Filtering**    | `--fields id,date,amount` to limit output fields                      | Medium   |
+| **Error Sanitization** | Redacts Bearer tokens from error messages                             | High     |
+| **Dual Mode**          | Single codebase supports both CLI and MCP server                      | Low      |
 
 ### ynab-mcpb (dizzlkheinz)
-| Feature | Description | Priority |
-|---------|-------------|----------|
-| **Receipt Itemization** | Split transactions from receipts with tax allocation | High |
-| **Bank Reconciliation** | CSV import, fuzzy matching, bank format presets (TD, RBC, Scotiabank, Wealthsimple, Tangerine) | High |
-| **Tool Annotations** | MCP hints: `readOnlyHint`, `destructiveHint`, `idempotentHint` | Medium |
-| **Tool Registry Pattern** | Centralized registration with dependency injection | Medium |
-| **LRU Cache** | Stale-while-revalidate pattern, per-TTL constants | Low |
-| **Rate Limiter** | Token bucket algorithm for YNAB API compliance | Medium |
+
+| Feature                   | Description                                                                                    | Priority |
+| ------------------------- | ---------------------------------------------------------------------------------------------- | -------- |
+| **Receipt Itemization**   | Split transactions from receipts with tax allocation                                           | High     |
+| **Bank Reconciliation**   | CSV import, fuzzy matching, bank format presets (TD, RBC, Scotiabank, Wealthsimple, Tangerine) | High     |
+| **Tool Annotations**      | MCP hints: `readOnlyHint`, `destructiveHint`, `idempotentHint`                                 | Medium   |
+| **Tool Registry Pattern** | Centralized registration with dependency injection                                             | Medium   |
+| **LRU Cache**             | Stale-while-revalidate pattern, per-TTL constants                                              | Low      |
+| **Rate Limiter**          | Token bucket algorithm for YNAB API compliance                                                 | Medium   |
 
 ### ynab-mcp-server (issmirnov)
-| Feature | Description | Priority |
-|---------|-------------|----------|
-| **Spending Pattern Analysis** | Per-category trends, anomaly detection, insights | High |
-| **Cash Flow Forecast** | Project 1-12 months with confidence levels | High |
-| **Goal Progress Reports** | TB/TBD/MF goal tracking with status | High |
-| **Category Performance** | Budget utilization, overspend frequency, ratings | Medium |
-| **Budget from History** | Suggest budgets based on historical spending | Medium |
-| **Handle Overspending** | Auto-resolve by moving funds intelligently | High |
-| **Auto-Distribute Funds** | Allocate "Ready to Assign" based on goals | Medium |
-| **Bulk Operations** | Bulk approve, bulk move funds | Medium |
-| **Retry Logic** | Exponential backoff, anti-bot detection, rate limit awareness | High |
-| **Modular Tools** | One file per tool (18 files) vs our monolithic server.ts | Medium |
+
+| Feature                       | Description                                                   | Priority |
+| ----------------------------- | ------------------------------------------------------------- | -------- |
+| **Spending Pattern Analysis** | Per-category trends, anomaly detection, insights              | High     |
+| **Cash Flow Forecast**        | Project 1-12 months with confidence levels                    | High     |
+| **Goal Progress Reports**     | TB/TBD/MF goal tracking with status                           | High     |
+| **Category Performance**      | Budget utilization, overspend frequency, ratings              | Medium   |
+| **Budget from History**       | Suggest budgets based on historical spending                  | Medium   |
+| **Handle Overspending**       | Auto-resolve by moving funds intelligently                    | High     |
+| **Auto-Distribute Funds**     | Allocate "Ready to Assign" based on goals                     | Medium   |
+| **Bulk Operations**           | Bulk approve, bulk move funds                                 | Medium   |
+| **Retry Logic**               | Exponential backoff, anti-bot detection, rate limit awareness | High     |
+| **Modular Tools**             | One file per tool (18 files) vs our monolithic server.ts      | Medium   |
 
 ### ynab-tui (AbdallahAHO)
-| Feature | Description | Priority |
-|---------|-------------|----------|
-| **AI Categorization** | Confidence scores, alternatives, historical learning | High |
-| **Transfer Detection** | Auto-match same amount, opposite signs, 3-day window | High |
-| **Payee Management** | Name cleanup, auto-tagging, duplicate detection | Medium |
-| **YOLO Mode** | Batch auto-categorize above confidence threshold | Medium |
-| **Memo Generation** | AI-powered memo suggestions | Low |
-| **CLI Automation** | Headless mode for cron jobs | Medium |
+
+| Feature                | Description                                          | Priority |
+| ---------------------- | ---------------------------------------------------- | -------- |
+| **AI Categorization**  | Confidence scores, alternatives, historical learning | High     |
+| **Transfer Detection** | Auto-match same amount, opposite signs, 3-day window | High     |
+| **Payee Management**   | Name cleanup, auto-tagging, duplicate detection      | Medium   |
+| **YOLO Mode**          | Batch auto-categorize above confidence threshold     | Medium   |
+| **Memo Generation**    | AI-powered memo suggestions                          | Low      |
+| **CLI Automation**     | Headless mode for cron jobs                          | Medium   |
 
 ---
 
 ## Our Strengths (ynab-mcp-deluxe)
 
-| Feature | Description | vs Competition |
-|---------|-------------|----------------|
-| **Delta Sync** | Efficient incremental updates with `server_knowledge` | Unique |
-| **Drift Detection** | Validates merge logic for data consistency | Unique |
-| **Auto-Backup** | 24-hour throttled backups to `~/.config/ynab-mcp-deluxe/backups/` | Unique |
-| **Transaction Enrichment** | Adds resolved names alongside IDs (`account_name`, `category_name`) | Better |
-| **Per-Budget Caching** | O(1) lookup maps, selective invalidation after writes | Better |
-| **JMESPath Filtering** | Powerful query language for complex filters | Better |
-| **Flexible Selectors** | Accept ID or name for accounts, categories, payees | Better |
-| **Type-Safe Enums** | Derive from YNAB SDK, not hardcoded strings | Better |
+| Feature                    | Description                                                         | vs Competition |
+| -------------------------- | ------------------------------------------------------------------- | -------------- |
+| **Delta Sync**             | Efficient incremental updates with `server_knowledge`               | Unique         |
+| **Drift Detection**        | Validates merge logic for data consistency                          | Unique         |
+| **Auto-Backup**            | 24-hour throttled backups to `~/.config/ynab-mcp-deluxe/backups/`   | Unique         |
+| **Transaction Enrichment** | Adds resolved names alongside IDs (`account_name`, `category_name`) | Better         |
+| **Per-Budget Caching**     | O(1) lookup maps, selective invalidation after writes               | Better         |
+| **JMESPath Filtering**     | Powerful query language for complex filters                         | Better         |
+| **Flexible Selectors**     | Accept ID or name for accounts, categories, payees                  | Better         |
+| **Type-Safe Enums**        | Derive from YNAB SDK, not hardcoded strings                         | Better         |
 
 ---
 
@@ -82,18 +86,21 @@
 ### Tier 1: Essential (High User Value)
 
 1. **Spending Analytics Suite**
+
    - `analyze_spending_patterns` - trends, anomalies, insights
    - `cash_flow_forecast` - project future months
    - `goal_progress_report` - track goal completion
    - Source: ynab-mcp-server
 
 2. **Bank Reconciliation**
+
    - CSV import with bank format presets
    - Fuzzy transaction matching
    - Discrepancy detection and resolution
    - Source: ynab-mcpb
 
 3. **AI Transaction Categorization** (requires external AI)
+
    - Confidence-scored suggestions
    - Historical pattern learning
    - Batch auto-categorize (YOLO mode)
@@ -107,16 +114,19 @@
 ### Tier 2: Important (Security/UX)
 
 5. **Error Sanitization**
+
    - Redact Bearer tokens from error messages
    - Source: ynab-cli
 
 6. **Retry Logic**
+
    - Exponential backoff (1s → 2s → 4s)
    - Anti-bot detection
    - Rate limit awareness
    - Source: ynab-mcp-server
 
 7. **Handle Overspending Tool**
+
    - Auto-resolve by moving funds from available categories
    - Smart source selection
    - Source: ynab-mcp-server
@@ -129,14 +139,17 @@
 ### Tier 3: Nice-to-Have
 
 9. **Tool Annotations**
+
    - Add MCP hints for safety metadata
    - Source: ynab-mcpb
 
 10. **Raw API Access**
+
     - Escape hatch for any YNAB endpoint
     - Source: ynab-cli
 
 11. **OS Keychain Auth** (optional)
+
     - More secure than env vars
     - Source: ynab-cli
 
@@ -151,6 +164,7 @@
 ### Analytics Tools Architecture
 
 From ynab-mcp-server:
+
 ```typescript
 // Each tool is a separate file with class pattern
 class AnalyzeSpendingPatternsTool {
@@ -160,6 +174,7 @@ class AnalyzeSpendingPatternsTool {
 ```
 
 Key metrics to calculate:
+
 - **Trend**: Compare 3-month rolling averages (increasing/decreasing/stable/volatile)
 - **Anomaly**: Spending > 2x monthly average
 - **Confidence**: Based on variance (low variance = high confidence)
@@ -167,6 +182,7 @@ Key metrics to calculate:
 ### Bank Reconciliation Algorithm
 
 From ynab-mcpb:
+
 ```
 1. Parse CSV → BankTransaction[] (all in milliunits)
 2. Fetch YNAB transactions → NormalizedYNABTransaction[]
@@ -181,6 +197,7 @@ From ynab-mcpb:
 ### Transfer Detection Algorithm
 
 From ynab-tui:
+
 ```typescript
 // 1. Group uncategorized transactions by absolute amount
 // 2. For each group with 2+ transactions:
@@ -193,6 +210,7 @@ From ynab-tui:
 ### AI Categorization Architecture
 
 From ynab-tui:
+
 ```typescript
 // Context building:
 // - User context (location, language)
