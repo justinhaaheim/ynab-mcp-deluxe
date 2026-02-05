@@ -31,6 +31,7 @@ import {z} from 'zod';
 
 import packageJson from '../package.json' with {type: 'json'};
 import {backupBudget} from './backup.js';
+import {installFetchInterceptor} from './fetch-interceptor.js';
 import {
   applyJMESPath,
   calculateCategoryDistribution,
@@ -42,7 +43,9 @@ import {
   validateSelector,
 } from './helpers.js';
 import {logger} from './logger.js';
+import {initPayloadLogger} from './payload-logger.js';
 import {clearSyncHistory} from './sync-history.js';
+import {createLoggingToolAdder} from './tool-logging.js';
 import {isReadOnlyMode, ynabClient} from './ynab-client.js';
 
 const resolvedVersion = packageJson.version;
@@ -73,6 +76,19 @@ const server = new FastMCP({
   // @ts-ignore ts(2322) - It should be fine to pass a semver compatible string here
   version: resolvedVersion,
 });
+
+// ============================================================================
+// Initialize Payload Logging
+// ============================================================================
+
+// Initialize payload logging (must be done before any tools are called)
+void initPayloadLogger();
+
+// Install fetch interceptor to log YNAB API calls
+installFetchInterceptor();
+
+// Create a tool adder that wraps tools with logging
+const addTool = createLoggingToolAdder(server);
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
@@ -141,7 +157,7 @@ async function prepareBudgetRequest(
 // Tool 1: get_budgets
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: true,
@@ -175,7 +191,7 @@ Returns budget names, IDs, currency, and date ranges. Call this first if you nee
 // Tool 2: query_transactions
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: true,
@@ -387,7 +403,7 @@ Just IDs and payees (minimal projection):
 // Tool 3: get_payee_history
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: true,
@@ -493,7 +509,7 @@ Amazon transactions (limited):
 // Tool 4: get_categories
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: true,
@@ -582,7 +598,7 @@ Array of category groups, each containing:
 // Tool 5: get_accounts
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: true,
@@ -650,7 +666,7 @@ Just checking accounts:
 // Tool 6: update_transactions
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: false,
@@ -838,7 +854,7 @@ Returns updated transactions and any failures with error messages.`,
 // Tool 7: get_payees
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: true,
@@ -894,7 +910,7 @@ Search for a payee:
 // Tool 8: get_scheduled_transactions
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: true,
@@ -953,7 +969,7 @@ Monthly bills only:
 // Tool 9: get_months
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: true,
@@ -1009,7 +1025,7 @@ Recent months with positive income:
 // Tool 10: get_budget_summary
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: true,
@@ -1168,7 +1184,7 @@ const TransactionInputSchema = z.object({
 
 type TransactionInputArgs = z.infer<typeof TransactionInputSchema>;
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: false,
@@ -1414,7 +1430,7 @@ Paycheck ($3000):
 // Tool 12: delete_transaction
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: false,
@@ -1474,7 +1490,7 @@ transaction_id (required) - The ID of the transaction to delete
 // Tool 13: import_transactions
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: false,
@@ -1532,7 +1548,7 @@ budget - Which budget (uses default if omitted)
 // Tool 14: update_category_budget
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: false,
@@ -1647,7 +1663,7 @@ Fund emergency fund with $1000:
 const accountTypeValues = Object.values(AccountType) as [string, ...string[]];
 const AccountTypeSchema = z.enum(accountTypeValues);
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: true,
     readOnlyHint: false,
@@ -1743,7 +1759,7 @@ Create a savings account with $0:
 // Tool 16: backup_budget
 // ============================================================================
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: false,
     readOnlyHint: true, // Doesn't modify YNAB data (only writes local files)
@@ -1826,7 +1842,7 @@ Backup specific budget:
 // clear_sync_history - Clear local sync history files
 // ----------------------------------------------------------------------------
 
-server.addTool({
+addTool({
   annotations: {
     openWorldHint: false,
     readOnlyHint: false, // Deletes local files
@@ -1919,7 +1935,7 @@ const LoggingLevelSchema = z.enum([
   'emergency',
 ]);
 
-server.addTool({
+addTool({
   description: `Set the MCP server logging level. Debug level shows the most verbose output.
 
 **Levels (most to least verbose):** debug, info, notice, warning, error, critical, alert, emergency
