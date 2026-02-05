@@ -160,6 +160,35 @@ This captures:
 - [x] YNAB HTTP interceptor implemented (`src/fetch-interceptor.ts`)
 - [x] Documentation updated (CLAUDE.md)
 - [x] All signal checks passing
-- [ ] YNAB HTTP interceptor implemented
-- [ ] Tests added
-- [ ] Documentation updated
+
+## Phase 5: Bug Fixes and Improvements (2026-02-05)
+
+Issues identified during code review - all completed:
+
+### ynab-mcp-deluxe-mlc (P2): Circuit breaker for ensureSessionDir ✅
+
+- [x] Add failure counter and disable logging after N failures (MAX_DIR_FAILURES = 3)
+- [x] Prevents repeated mkdir attempts on permission errors
+- [x] Circuit breaker resets on session change
+
+### ynab-mcp-deluxe-1gv (P3): Type safety in createLoggingToolAdder ✅
+
+- [x] Investigated proper typing - FastMCP uses complex generics (StandardSchemaV1, auth types)
+- [x] Added detailed explanatory comment explaining why suppression is safe
+
+### ynab-mcp-deluxe-04v (P3): Error details in fetch-interceptor ✅
+
+- [x] Include error message when JSON/text parsing fails
+- [x] Returns `{_parseError, jsonError, textError}` object for debugging
+
+### ynab-mcp-deluxe-74q (P3): Extend sequence counter ✅
+
+- [x] Changed from 3-digit (999 max) to 6-digit (999,999 max)
+- [x] Added documentation comment explaining the limit
+
+### ynab-mcp-deluxe-5yy (P1): Add tests ✅
+
+- [x] Tests for payload-logger.ts (20 tests)
+- [x] Tests for tool-logging.ts (15 tests)
+- [x] Tests for fetch-interceptor.ts (8 tests)
+- Total: 43 new tests, all passing

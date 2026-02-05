@@ -84,17 +84,44 @@ let currentSessionId: string = serverSessionId;
 let sequenceCounter = 0;
 
 /**
+ * Circuit breaker state for directory creation failures.
+ * After MAX_DIR_FAILURES consecutive failures, logging is disabled for the session.
+ */
+const MAX_DIR_FAILURES = 3;
+let dirFailureCount = 0;
+let circuitBreakerTripped = false;
+
+/**
  * Set the current session ID (called when MCP session ID is available).
+ * Resets the sequence counter and circuit breaker on session change.
  */
 export function setSessionId(sessionId: string | undefined): void {
   const newSessionId = sessionId ?? serverSessionId;
   if (newSessionId !== currentSessionId) {
     currentSessionId = newSessionId;
     sequenceCounter = 0; // Reset sequence for new session
+    // Reset circuit breaker for new session - new session may have different permissions
+    dirFailureCount = 0;
+    circuitBreakerTripped = false;
     fileLogger.debug('Payload logger session changed', {
       sessionId: currentSessionId,
     });
   }
+}
+
+/**
+ * Reset the circuit breaker state (for testing).
+ */
+export function resetCircuitBreaker(): void {
+  dirFailureCount = 0;
+  circuitBreakerTripped = false;
+}
+
+/**
+ * Check if the circuit breaker is tripped (for testing).
+ */
+export function isCircuitBreakerTripped(): boolean {
+  return circuitBreakerTripped;
 }
 
 /**
@@ -143,11 +170,33 @@ function getSessionDir(): string {
 
 /**
  * Ensure the session directory exists.
+ * Uses circuit breaker pattern - after MAX_DIR_FAILURES consecutive failures,
+ * throws immediately without attempting mkdir.
  */
 async function ensureSessionDir(): Promise<string> {
+  // Check circuit breaker first
+  if (circuitBreakerTripped) {
+    throw new Error('Circuit breaker tripped: directory creation disabled');
+  }
+
   const dir = getSessionDir();
-  await mkdir(dir, {recursive: true});
-  return dir;
+  try {
+    await mkdir(dir, {recursive: true});
+    // Reset failure count on success
+    dirFailureCount = 0;
+    return dir;
+  } catch (error) {
+    dirFailureCount++;
+    if (dirFailureCount >= MAX_DIR_FAILURES) {
+      circuitBreakerTripped = true;
+      fileLogger.error('Circuit breaker tripped: disabling payload logging', {
+        consecutiveFailures: dirFailureCount,
+        directory: dir,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    throw error;
+  }
 }
 
 /**
@@ -160,14 +209,17 @@ export type PayloadDirection = 'req' | 'res';
  * Generate a filename for a payload.
  *
  * Format: {sequence}_{time}_{layer}_{operation}_{direction}.json
- * Example: 001_14-32-15-123_mcp_query_transactions_req.json
+ * Example: 000001_14-32-15-123_mcp_query_transactions_req.json
+ *
+ * Sequence supports up to 999,999 payloads per session, which is more than
+ * adequate for debugging purposes (at 1 payload/second, this is ~11.5 days).
  */
 function generatePayloadFilename(
   layer: PayloadLayer,
   operation: string,
   direction: PayloadDirection,
 ): string {
-  const seq = getNextSequence().toString().padStart(3, '0');
+  const seq = getNextSequence().toString().padStart(6, '0');
   const time = formatTimeForFilename(new Date());
   // Sanitize operation name for filename (replace non-alphanumeric with underscore)
   const safeOperation = operation.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50);
