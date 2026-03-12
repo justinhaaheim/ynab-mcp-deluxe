@@ -170,21 +170,51 @@ description: `Query transactions with filtering, sorting, and JMESPath projectio
 
 ---
 
-## Explicitly Not Recommended
+## Additional Planned Work
 
-### CLI Surface
+### CLI Surface — PLANNED
 
-The spec strongly advocates CLI-first architecture. For this project, **I recommend staying MCP-only** for now:
+The spec strongly advocates CLI-first architecture. Our core business logic already lives in `ynab-client.ts` and `helpers.ts` (not in MCP server.ts tool handlers), so the shared-core + thin-surfaces architecture is achievable.
 
-- **YNAB is a structured API wrapper** — the value proposition is caching, enrichment, and selector resolution, all of which benefit from the stateful MCP session model.
-- **No filesystem access needed** — unlike browser automation or file manipulation tools, YNAB operations don't benefit from pipe composition.
-- **Token efficiency concern is real but addressable** — the spec's 4x token savings for CLI vs MCP come from Playwright's case (streaming DOM snapshots). Our tool descriptions are the token problem, and progressive disclosure solves it without a CLI.
-- **Engineering cost** — building a full CLI (arg parsing, help system, TTY detection, output formatting) is significant. The ROI is low given the API-wrapper nature of this tool.
-- **If we add a CLI later**, the spec's architecture (shared core logic + thin surfaces) is already achievable — our business logic lives in `ynab-client.ts` and `helpers.ts`, not in server.ts tool handlers.
+**Key design decisions:**
 
-### JSONL Streaming / Pagination
+- **Disk-based caching**: The CLI will cache budget data to disk (e.g., `~/.config/ynab-mcp-deluxe/cache/`) with a configurable TTL, mirroring the MCP server's in-memory cache. This avoids burning 4+ API calls per invocation against YNAB's 200/hr rate limit.
+- **`--force-sync` flag**: Skip the disk cache and do a full reload from the YNAB API.
+- **JSONL output for list operations**: `query_transactions`, `get_payees`, `get_categories`, `get_accounts` emit one JSON object per line, enabling streaming/pipe composition.
+- **JSON output for single-entity operations**: `get_budget_summary`, `get_payee_history` return a single JSON object.
+- **Shared Zod validation**: CLI input validation reuses the same Zod schemas as MCP tools.
 
-YNAB's API already handles pagination internally. Our tools return complete result sets (with a `limit` parameter). JSONL streaming adds complexity without clear benefit for this use case.
+**Token efficiency benefit**: The Playwright case study showed 4x fewer tokens via CLI vs MCP. For YNAB, the savings come from: (a) no tool schemas loaded upfront, (b) no JSON-RPC framing overhead per call, (c) the agent can use `--help` on demand instead of receiving all docs at connection time.
+
+**Architecture:**
+
+```
+src/
+  core/             # Shared business logic (extracted from ynab-client.ts, helpers.ts)
+  mcp/              # MCP server surface (server.ts, trimmed)
+  cli/              # CLI surface (arg parsing, TTY detection, output formatting)
+```
+
+### Pagination — GAP (applies to both MCP and CLI)
+
+**Problem:** Current tools return results up to `limit` (default 50, max 500) with no way to retrieve subsequent pages. If a user has 300 uncategorized transactions and requests `limit: 50`, they get the first 50 and cannot access 51-300 without workarounds (narrowing `since_date`, JMESPath hacks).
+
+**Proposed solution:**
+
+- Add `offset` parameter alongside `limit` to list tools (`query_transactions`, `get_payees`, `get_categories`, `get_accounts`).
+- Response includes `total_count` in metadata so the agent knows how many results exist.
+- CLI: pagination is natural — the agent can pipe output or request additional pages.
+- MCP: the agent calls the tool again with `offset: 50` to get the next page.
+
+**Note:** This is distinct from JSONL streaming. Pagination is about _retrieving_ chunks; JSONL is about _streaming_ them. Both are useful; pagination applies to both surfaces.
+
+### JSONL Streaming — PLANNED (CLI surface)
+
+JSONL is immediately useful in the CLI surface for list operations. In MCP, responses are single text content blocks so JSONL doesn't add value until MCP supports streaming.
+
+- CLI list commands emit one JSON object per line (JSONL)
+- Enables pipe composition: `ynab transactions --uncategorized | jq '.payee_name'`
+- MCP continues returning JSON arrays (single response blob)
 
 ### Field Masks (Beyond JMESPath)
 
@@ -210,12 +240,19 @@ JMESPath already provides projection (`[*].{id: id, name: name}`). Adding a sepa
 9. **Add `audit_log` tool** — Read recent audit entries.
 10. **Add input hardening** — UUID validation, control char rejection, encoding checks on ID fields.
 
-### Phase 3: Polish
+### Phase 3: CLI Surface & Streaming
 
-11. **Standardize response envelope** — Consistent `{ data, metadata }` structure.
-12. **Add self-referencing help pointers** — Ensure all help outputs reference other help capabilities.
-13. **Create bootstrap skill file** — Minimal `SKILL.md` for agent plugin contexts.
-14. **Structured error messages** — Add `expected`/`actual` fields to error responses.
+11. **Extract shared core** — Move business logic from `ynab-client.ts` and `helpers.ts` into `src/core/` so both MCP and CLI surfaces can use it.
+12. **Build CLI surface** — Arg parsing, disk-based caching with TTL, `--force-sync` flag, `--help` per command.
+13. **JSONL output for CLI list commands** — `query_transactions`, `get_payees`, `get_categories`, `get_accounts` emit JSONL.
+14. **Add pagination (offset)** — `offset` parameter on list tools (both MCP and CLI), `total_count` in response metadata.
+
+### Phase 4: Polish
+
+15. **Standardize response envelope** — Consistent `{ data, metadata }` structure.
+16. **Add self-referencing help pointers** — Ensure all help outputs reference other help capabilities.
+17. **Create bootstrap skill file** — Minimal `SKILL.md` for agent plugin contexts.
+18. **Structured error messages** — Add `expected`/`actual` fields to error responses.
 
 ---
 
@@ -241,7 +278,9 @@ JMESPath already provides projection (`[*].{id: id, name: name}`). Adding a sepa
 - [ ] Help outputs reference other help capabilities — **GAP: No self-referencing**
 - [ ] Schema introspection available — **GAP: No schema tool**
 - [x] JSON output for all tools — **DONE**
-- [ ] JSONL for streaming — **N/A (not applicable for this use case)**
+- [ ] JSONL for streaming — **PLANNED for CLI surface**
+- [ ] CLI surface with disk caching — **PLANNED (Phase 3)**
+- [ ] Pagination (offset param on list tools) — **GAP: No offset/cursor support**
 - [x] Field selection (JMESPath) — **DONE**
 - [x] Input validation (Zod schemas) — **DONE (but needs hallucination hardening)**
 - [ ] Error messages structured with expected vs actual — **PARTIAL**
