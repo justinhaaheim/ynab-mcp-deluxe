@@ -34,6 +34,7 @@ A CLI surface is explicitly **not recommended** at this time (see rationale belo
 | Field selection             | ✅ JMESPath `query` param          | Projection, filtering, and transformation |
 | Backup/snapshot capability  | ✅ Manual + auto sync-history      | Full budget state capture                 |
 | Tool annotations            | ✅ `readOnlyHint`, `openWorldHint` | MCP-standard metadata                     |
+| Payload logging             | ✅ Full request/response capture   | MCP tools + YNAB HTTP, session-organized  |
 
 ### Gaps (Ordered by Impact)
 
@@ -88,23 +89,29 @@ description: `Query transactions with filtering, sorting, and JMESPath projectio
 
 #### 3. Structured Audit Logging — MEDIUM-HIGH IMPACT
 
-**Problem:** Mutations are logged via pino (`log.info(...)`) but there's no structured, queryable audit trail. If an agent creates 15 transactions and deletes 3 in a session, reconstructing what happened requires grepping through pino log files. There is no before-state capture for updates/deletes.
+**Problem:** Mutations need a structured, queryable audit trail with before-state capture for undo scenarios.
 
-**Proposed solution:**
+**Update (2026-03-14):** Main now has comprehensive **payload logging** (`payload-logger.ts`, `fetch-interceptor.ts`, `tool-logging.ts`) that captures:
 
-- Create a JSONL audit journal at `~/.config/ynab-mcp-deluxe/audit/YYYY-MM-DD.jsonl`
-- Each mutation log entry includes:
-  - `timestamp` (ISO 8601)
-  - `action` (tool name)
-  - `arguments` (full tool call arguments, sanitized of any secrets)
-  - `result` (success/failure + response summary)
-  - `budget_id`
-  - `before_state` (for updates/deletes — fetch the entity before mutating)
-  - `session_id` (MCP session or server instance ID)
-- Add an `audit_log` read tool that returns recent audit entries (filterable by date, action type, budget)
-- Retention: keep indefinitely during alpha (current stage), add configurable retention later
+- All MCP tool requests/responses (via `createLoggingToolAdder` wrapper)
+- All YNAB HTTP requests/responses (via global fetch interceptor)
+- Organized by session, written to `~/.config/ynab-mcp-deluxe/payloads/YYYY-MM-DD/session-{id}/`
+- Each payload is a separate JSON file with sequence numbering
+- Headers are sanitized (auth tokens redacted)
+- Configurable via `YNAB_PAYLOAD_LOGGING`, `YNAB_PAYLOAD_AUTO_PURGE`, `YNAB_PAYLOAD_RETENTION_DAYS`
 
-**Before-state capture:** For `update_transactions`, fetch the current transaction state before applying the update. For `delete_transaction`, fetch the transaction before deletion. This enables "undo" scenarios. The sync-history snapshots partially serve this purpose today, but they're too coarse-grained (full budget vs. individual entity).
+**What payload logging covers that overlaps with our audit logging proposal:**
+
+- Tool name, arguments, result, session ID, timestamp — all captured
+- Success/failure tracking with duration
+
+**What's still missing (audit-specific gaps):**
+
+- **Before-state capture** for updates/deletes — the payload logger records what was _sent_ and _returned_, but not the entity state _before_ the mutation. For `update_transactions`, we'd need to fetch the current transaction state before applying the update.
+- **Queryable audit tool** — no `audit_log` MCP tool to let the agent search recent mutations. The payload files are on disk but not exposed via the MCP interface.
+- **JSONL format** — the current payload logger writes one JSON file per payload. A JSONL append-only journal would be more efficient for audit queries. However, this may not be worth the complexity since the current approach is already working.
+
+**Revised recommendation:** Build the audit tool on top of the existing payload logger rather than creating a parallel system. Add before-state capture to the write tool wrappers. The `audit_log` tool can read from the existing payload directory structure.
 
 #### 4. Input Hardening Against Hallucinations — MEDIUM IMPACT
 
@@ -236,8 +243,8 @@ JMESPath already provides projection (`[*].{id: id, name: name}`). Adding a sepa
 ### Phase 2: Safety & Auditability
 
 7. **Add `dry_run` parameter** to all write tools with preview output.
-8. **Add structured audit logging** — JSONL journal for all mutations with before-state capture.
-9. **Add `audit_log` tool** — Read recent audit entries.
+8. **Add before-state capture** — Extend the existing payload logging wrapper to fetch entity state before mutations (update/delete). This builds on the `tool-logging.ts` infrastructure already on main.
+9. **Add `audit_log` tool** — Read recent mutations from the existing payload directory, filterable by date, action type, budget.
 10. **Add input hardening** — UUID validation, control char rejection, encoding checks on ID fields.
 
 ### Phase 3: CLI Surface & Streaming
@@ -285,7 +292,7 @@ JMESPath already provides projection (`[*].{id: id, name: name}`). Adding a sepa
 - [x] Input validation (Zod schemas) — **DONE (but needs hallucination hardening)**
 - [ ] Error messages structured with expected vs actual — **PARTIAL**
 - [ ] `dry_run` for mutations — **GAP: Not implemented**
-- [ ] Audit logging for mutations — **GAP: Only pino logs, no structured journal**
+- [ ] Audit logging for mutations — **PARTIAL: Payload logging captures tool calls + HTTP traffic. Missing: before-state capture, queryable audit tool**
 - [x] Auth via env vars — **DONE**
 - [ ] MCP uses minimal descriptions + help/schema/guidance — **GAP: Descriptions are verbose**
 - [ ] Bootstrap skill file is a redirect — **GAP: No skill file**
