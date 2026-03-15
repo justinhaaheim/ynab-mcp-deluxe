@@ -200,7 +200,11 @@ server.addTool({
 - **Module System**: ESM throughout
 - **TypeScript**: Strict mode with all checks enabled
 
-## Issue Priority Guidelines
+## Beads (Issue Tracking)
+
+**Always run `bd` commands outside the sandbox** (`dangerouslyDisableSandbox: true`). Beads uses a Dolt database server that needs to bind network ports, which the sandbox blocks.
+
+### Issue Priority Guidelines
 
 This project uses beads (`bd`) for issue tracking. Priority levels:
 
