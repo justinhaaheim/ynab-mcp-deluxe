@@ -1,6 +1,7 @@
 /**
- * Re-run of test 6 (delete split transaction) with the SDK workaround installed.
+ * Re-run of test 6 (delete split transaction).
  * This test previously crashed due to the YNAB SDK's MonthDetail null categories bug.
+ * Fixed via bun patch (patches/ynab@2.10.0.patch).
  *
  * Usage: YNAB_ACCESS_TOKEN=<token> bun run scripts/test6-rerun.ts
  */
@@ -8,11 +9,7 @@
 import * as ynab from 'ynab';
 
 import {checkForDrift} from '../src/drift-detection.js';
-import {installFetchInterceptor} from '../src/fetch-interceptor.js';
 import {buildLocalBudget, mergeDelta} from '../src/local-budget.js';
-
-// Install the interceptor that normalizes null categories
-installFetchInterceptor();
 
 const BUDGET_ID = '1feb7f66-f7ba-48a9-8d90-8a399175113e';
 const TOKEN = process.env['YNAB_ACCESS_TOKEN'];

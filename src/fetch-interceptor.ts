@@ -1,10 +1,7 @@
 /**
- * Fetch interceptor for YNAB API requests and responses.
+ * Fetch interceptor for logging YNAB API requests and responses.
  *
- * Wraps the global fetch function to:
- * 1. Normalize responses (fix known SDK deserialization bugs)
- * 2. Optionally log all HTTP traffic for debugging
- *
+ * Wraps the global fetch function to capture all HTTP traffic to the YNAB API.
  * Only intercepts requests to api.ynab.com, passing through all other requests.
  */
 
@@ -17,11 +14,6 @@ import {
 } from './payload-logger.js';
 
 const YNAB_API_HOST = 'api.ynab.com';
-
-/** Intentional no-op for fire-and-forget promise catch handlers */
-function noop(_error: unknown): void {
-  // Intentionally swallowing logging errors — they should not affect API behavior
-}
 
 /**
  * Check if a URL is a YNAB API request.
@@ -147,122 +139,44 @@ async function getBody(
 // Store the original fetch
 let originalFetch: typeof fetch | null = null;
 
-// ============================================================================
-// Response Normalization
-// ============================================================================
-
 /**
- * Check if a URL is a budget detail endpoint (full or delta budget fetch).
- * These are the endpoints that return MonthDetail objects with categories.
- *
- * Matches: /v1/budgets/{budgetId} (with optional query params)
- * Does NOT match: /v1/budgets (list) or /v1/budgets/{id}/transactions etc.
+ * Create a logging wrapper around fetch.
  */
-function isBudgetDetailUrl(url: string): boolean {
-  try {
-    const urlObj = new URL(url);
-    // Match /v1/budgets/{uuid} but not sub-resources like /transactions
-    return /^\/v1\/budgets\/[^/]+\/?$/.test(urlObj.pathname);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Normalize a YNAB API response body to fix known SDK deserialization bugs.
- *
- * Known issue: The YNAB API returns `categories: null` in MonthDetail objects
- * within delta responses when a month is affected but no categories changed.
- * The SDK's MonthDetailFromJSON crashes on `null.map()` (MonthDetail.js:51).
- *
- * This function normalizes `null` categories to `[]` before the SDK sees it.
- *
- * @returns true if the body was modified, false if no changes needed
- */
-function normalizeResponseBody(body: Record<string, unknown>): boolean {
-  let modified = false;
-
-  // Navigate to data.budget.months
-  const data = body['data'] as Record<string, unknown> | undefined;
-  if (data === undefined) return false;
-
-  const budget = data['budget'] as Record<string, unknown> | undefined;
-  if (budget === undefined) return false;
-
-  const months = budget['months'] as
-    | Record<string, unknown>[]
-    | null
-    | undefined;
-  if (!Array.isArray(months)) return false;
-
-  for (const month of months) {
-    if (month['categories'] === null || month['categories'] === undefined) {
-      month['categories'] = [];
-      modified = true;
-    }
-  }
-
-  if (modified) {
-    fileLogger.debug(
-      'Normalized null categories in MonthDetail (YNAB SDK bug workaround)',
-    );
-  }
-
-  return modified;
-}
-
-/**
- * Create a wrapped fetch that normalizes and optionally logs YNAB API responses.
- */
-function createInterceptingFetch(baseFetch: typeof fetch): typeof fetch {
-  return async function interceptingFetch(
+function createLoggingFetch(baseFetch: typeof fetch): typeof fetch {
+  return async function loggingFetch(
     input: string | URL | Request,
     init?: RequestInit,
   ): Promise<Response> {
-    // Pass through non-YNAB requests
-    if (!isYnabApiUrl(input)) {
+    // Only intercept YNAB API requests
+    if (!isYnabApiUrl(input) || !isPayloadLoggingEnabled()) {
       return await baseFetch(input, init);
     }
 
     const url = getUrlString(input);
     const method = getMethod(input, init);
-    const doLog = isPayloadLoggingEnabled();
+    const headers = getHeaders(input, init);
     const startTime = performance.now();
 
     try {
-      // Log request (fire and forget)
-      if (doLog) {
-        const headers = getHeaders(input, init);
-        const body = await getBody(input, init);
-        logYnabRequest(method, url, headers, body).catch(noop);
-      }
+      // Log request (don't await - fire and forget)
+      const body = await getBody(input, init);
+      logYnabRequest(method, url, headers, body).catch(() => {
+        // Ignore logging errors
+      });
 
       // Execute the actual fetch
       const response = await baseFetch(input, init);
 
-      // Check if this is a budget detail response that may need normalization
-      const needsNormalization =
-        response.ok && method === 'GET' && isBudgetDetailUrl(url);
+      // Clone the response to read the body without consuming it
+      const responseClone = response.clone();
 
-      if (!needsNormalization && !doLog) {
-        // Nothing to do — return response as-is
-        return response;
-      }
-
-      // We need to read the body (for normalization and/or logging)
+      // Try to parse response body as JSON
       let responseBody: unknown;
       try {
-        // Clone if we only need to log (not normalize), read directly if normalizing
-        if (needsNormalization) {
-          responseBody = await response.json();
-        } else {
-          responseBody = await response.clone().json();
-        }
+        responseBody = await responseClone.json();
       } catch (jsonError) {
         try {
-          responseBody = needsNormalization
-            ? await response.text()
-            : await response.clone().text();
+          responseBody = await responseClone.text();
         } catch (textError) {
           responseBody = {
             _parseError: 'Unable to read response body',
@@ -278,32 +192,19 @@ function createInterceptingFetch(baseFetch: typeof fetch): typeof fetch {
         }
       }
 
-      // Log response (fire and forget)
-      if (doLog) {
-        logYnabResponse(method, url, response, responseBody, startTime).catch(
-          noop,
-        );
-      }
-
-      // Apply normalization and return reconstructed Response
-      // (body was consumed by .json() so we must reconstruct regardless)
-      if (needsNormalization) {
-        if (typeof responseBody === 'object' && responseBody !== null) {
-          normalizeResponseBody(responseBody as Record<string, unknown>);
-        }
-        return new Response(JSON.stringify(responseBody), {
-          headers: response.headers,
-          status: response.status,
-          statusText: response.statusText,
-        });
-      }
+      // Log response (don't await - fire and forget)
+      logYnabResponse(method, url, response, responseBody, startTime).catch(
+        () => {
+          // Ignore logging errors
+        },
+      );
 
       return response;
     } catch (error) {
-      // Log error (fire and forget)
-      if (doLog) {
-        logYnabError(method, url, error, startTime).catch(noop);
-      }
+      // Log error (don't await - fire and forget)
+      logYnabError(method, url, error, startTime).catch(() => {
+        // Ignore logging errors
+      });
       throw error;
     }
   };
@@ -312,9 +213,6 @@ function createInterceptingFetch(baseFetch: typeof fetch): typeof fetch {
 /**
  * Install the fetch interceptor globally.
  * Call this once at server startup.
- *
- * The interceptor always normalizes YNAB API responses (to work around SDK bugs).
- * Logging is applied conditionally based on YNAB_PAYLOAD_LOGGING.
  */
 export function installFetchInterceptor(): void {
   if (originalFetch !== null) {
@@ -322,15 +220,18 @@ export function installFetchInterceptor(): void {
     return;
   }
 
+  if (!isPayloadLoggingEnabled()) {
+    fileLogger.debug('Payload logging disabled, skipping fetch interceptor');
+    return;
+  }
+
   // Store original fetch
   originalFetch = globalThis.fetch;
 
-  // Replace with intercepting version (normalization + optional logging)
-  globalThis.fetch = createInterceptingFetch(originalFetch);
+  // Replace with logging version
+  globalThis.fetch = createLoggingFetch(originalFetch);
 
-  fileLogger.info(
-    'Fetch interceptor installed (response normalization + optional logging)',
-  );
+  fileLogger.info('Fetch interceptor installed for YNAB API logging');
 }
 
 /**
