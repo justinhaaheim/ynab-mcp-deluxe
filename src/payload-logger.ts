@@ -613,9 +613,11 @@ export async function purgeOldPayloads(): Promise<number> {
     }
   } catch (error) {
     // Directory might not exist yet, which is fine
-    if (
-      !(error instanceof Error && 'code' in error && error.code === 'ENOENT')
-    ) {
+    if (!(
+      error instanceof Error &&
+      'code' in error &&
+      error.code === 'ENOENT'
+    )) {
       fileLogger.error('Failed to purge old payloads', {
         error: error instanceof Error ? error.message : String(error),
       });

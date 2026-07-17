@@ -386,13 +386,14 @@ Review each MCP tool to ensure we're making smart, thoughtful choices about what
 - balance, balance_currency (enriched)
 
 **Missing (potentially useful):**
-| Field | Usefulness | Recommendation |
-|-------|------------|----------------|
-| `cleared_balance`, `uncleared_balance` | Medium - useful for reconciliation | Consider adding |
-| `note` | Low - rarely needed | Skip |
+
+| Field                                            | Usefulness                                  | Recommendation  |
+| ------------------------------------------------ | ------------------------------------------- | --------------- |
+| `cleared_balance`, `uncleared_balance`           | Medium - useful for reconciliation          | Consider adding |
+| `note`                                           | Low - rarely needed                         | Skip            |
 | `direct_import_linked`, `direct_import_in_error` | Medium - useful for troubleshooting imports | Consider adding |
-| `last_reconciled_at` | Low | Skip |
-| `debt_*` fields | Low - only relevant for loan accounts | Skip |
+| `last_reconciled_at`                             | Low                                         | Skip            |
+| `debt_*` fields                                  | Low - only relevant for loan accounts       | Skip            |
 
 **Status:** ✅ FIXED - Added `cleared_balance`, `cleared_balance_currency`, `uncleared_balance`, `uncleared_balance_currency`, `direct_import_linked`, `direct_import_in_error`
 
@@ -483,11 +484,12 @@ Review each MCP tool to ensure we're making smart, thoughtful choices about what
 - **transfer_account_id** ✅ ADDED
 
 **Still missing (minor):**
-| Field | Usefulness | Recommendation |
-|-------|------------|----------------|
-| `subtransactions` | High - split scheduled transactions exist | **Add** |
-| `transfer_account_id` | Medium - needed for transfer scheduled transactions | **Add** |
-| `flag_name` | Low | Skip |
+
+| Field                 | Usefulness                                          | Recommendation |
+| --------------------- | --------------------------------------------------- | -------------- |
+| `subtransactions`     | High - split scheduled transactions exist           | **Add**        |
+| `transfer_account_id` | Medium - needed for transfer scheduled transactions | **Add**        |
+| `flag_name`           | Low                                                 | Skip           |
 
 **Recommendation:** Add `subtransactions` and `transfer_account_id`
 
