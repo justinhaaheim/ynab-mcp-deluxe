@@ -121,9 +121,7 @@ YYYYMMDDTHHMMSSZ-[budgetId]-[full|delta].json
   "sync_type": "full",
   "synced_at": "2026-01-25T14:30:22Z",
   "server_knowledge": 12345,
-  "budget": {
-    /* entire budget object */
-  }
+  "budget": {/* entire budget object */}
 }
 ```
 
@@ -135,9 +133,7 @@ YYYYMMDDTHHMMSSZ-[budgetId]-[full|delta].json
   "synced_at": "2026-01-25T15:30:22Z",
   "previous_server_knowledge": 12345,
   "server_knowledge": 12350,
-  "budget": {
-    /* only changed entities */
-  }
+  "budget": {/* only changed entities */}
 }
 ```
 
