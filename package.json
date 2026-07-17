@@ -100,6 +100,9 @@
       "eslint --cache --max-warnings=0 --no-warn-ignored"
     ]
   },
+  "patchedDependencies": {
+    "ynab@2.10.0": "patches/ynab@2.10.0.patch"
+  },
   "trustedDependencies": [
     "@beads/bd"
   ]
