@@ -5,7 +5,17 @@
 const jhaConfig = require('eslint-config-jha-react-node/node');
 
 const config = [
-  {ignores: ['dist/', 'node_modules/', 'reference-projects/']},
+  {
+    ignores: [
+      'dist/',
+      'node_modules/',
+      'reference-projects/',
+      // Vendored verbatim from justin-sdk; excluded from tsconfig too (see the
+      // note there). Kept unmodified so it stays byte-identical to the SDK
+      // template rather than forking. Tracked upstream as home-base-rii4.
+      'scripts/setup-env.ts',
+    ],
+  },
   ...jhaConfig,
 ];
 

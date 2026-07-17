@@ -47,5 +47,12 @@
     "scripts",
     "vitest.config.ts",
     "dynamic-version.local.d.ts"
-  ]
+  ],
+  // TEMPORARY: scripts/setup-env.ts is vendored verbatim from justin-sdk and
+  // uses dot access on process.env, which trips this project's
+  // noPropertyAccessFromIndexSignature. We are the only project in the fleet
+  // with that flag on, so the SDK template has never had to satisfy it.
+  // Tracked upstream as home-base-rii4; remove this exclude once the SDK
+  // template switches to bracket access.
+  "exclude": ["scripts/setup-env.ts"]
 }
