@@ -160,8 +160,12 @@ function createLoggingFetch(baseFetch: typeof fetch): typeof fetch {
     try {
       // Log request (don't await - fire and forget)
       const body = await getBody(input, init);
-      logYnabRequest(method, url, headers, body).catch(() => {
-        // Ignore logging errors
+      logYnabRequest(method, url, headers, body).catch((err) => {
+        fileLogger.warn('Failed to log YNAB request', {
+          error: err instanceof Error ? err.message : String(err),
+          method,
+          url,
+        });
       });
 
       // Execute the actual fetch
@@ -194,16 +198,24 @@ function createLoggingFetch(baseFetch: typeof fetch): typeof fetch {
 
       // Log response (don't await - fire and forget)
       logYnabResponse(method, url, response, responseBody, startTime).catch(
-        () => {
-          // Ignore logging errors
+        (err) => {
+          fileLogger.warn('Failed to log YNAB response', {
+            error: err instanceof Error ? err.message : String(err),
+            method,
+            url,
+          });
         },
       );
 
       return response;
     } catch (error) {
       // Log error (don't await - fire and forget)
-      logYnabError(method, url, error, startTime).catch(() => {
-        // Ignore logging errors
+      logYnabError(method, url, error, startTime).catch((err) => {
+        fileLogger.warn('Failed to log YNAB error', {
+          error: err instanceof Error ? err.message : String(err),
+          method,
+          url,
+        });
       });
       throw error;
     }

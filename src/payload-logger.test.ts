@@ -5,7 +5,18 @@
  * and filename generation. File I/O is tested via integration.
  */
 
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
+import {z} from 'zod';
 
 import {
   getPayloadDir,
@@ -14,9 +25,54 @@ import {
   isAutoPurgeEnabled,
   isCircuitBreakerTripped,
   isPayloadLoggingEnabled,
+  logMcpRequest,
+  logMcpResponse,
+  purgeOldPayloads,
   resetCircuitBreaker,
   setSessionId,
 } from './payload-logger.js';
+
+// ============================================================================
+// Helpers for integration tests
+// ============================================================================
+
+/** Find the first subdirectory in a directory */
+async function findFirstSubdir(dir: string): Promise<string | undefined> {
+  const entries = await readdir(dir, {withFileTypes: true});
+  return entries.find((e) => e.isDirectory())?.name;
+}
+
+/** Recursively find all .json files under a directory */
+async function findAllPayloadFiles(dir: string): Promise<string[]> {
+  const results: string[] = [];
+  const entries = await readdir(dir, {withFileTypes: true});
+  for (const entry of entries) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...(await findAllPayloadFiles(fullPath)));
+    } else if (entry.name.endsWith('.json')) {
+      results.push(fullPath);
+    }
+  }
+  return results;
+}
+
+/** Schema for parsed MCP request payloads */
+const McpRequestPayloadSchema = z.object({
+  arguments: z.unknown(),
+  requestId: z.string().optional(),
+  sessionId: z.string(),
+  timestamp: z.string(),
+  tool: z.string(),
+});
+
+/** Schema for parsed MCP response payloads */
+const McpResponsePayloadSchema = z.object({
+  durationMs: z.number(),
+  response: z.unknown().optional(),
+  success: z.boolean(),
+  tool: z.string(),
+});
 
 // ============================================================================
 // Configuration Tests
@@ -226,5 +282,226 @@ describe('circuit breaker', () => {
     // Change again
     setSessionId('new-session-2');
     expect(isCircuitBreakerTripped()).toBe(false);
+  });
+});
+
+// ============================================================================
+// Integration Tests - File I/O
+// ============================================================================
+
+describe('file I/O integration', () => {
+  let tempDir: string;
+  let originalPayloadDir: string | undefined;
+  let originalPayloadLogging: string | undefined;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'ynab-payload-test-'));
+    originalPayloadDir = process.env['YNAB_PAYLOAD_DIR'];
+    originalPayloadLogging = process.env['YNAB_PAYLOAD_LOGGING'];
+    process.env['YNAB_PAYLOAD_DIR'] = tempDir;
+    process.env['YNAB_PAYLOAD_LOGGING'] = 'true';
+    // Use a unique session to avoid collisions and reset sequence
+    setSessionId('integration-test-' + Date.now());
+    resetCircuitBreaker();
+  });
+
+  afterEach(async () => {
+    if (originalPayloadDir === undefined) {
+      delete process.env['YNAB_PAYLOAD_DIR'];
+    } else {
+      process.env['YNAB_PAYLOAD_DIR'] = originalPayloadDir;
+    }
+    if (originalPayloadLogging === undefined) {
+      delete process.env['YNAB_PAYLOAD_LOGGING'];
+    } else {
+      process.env['YNAB_PAYLOAD_LOGGING'] = originalPayloadLogging;
+    }
+    setSessionId(undefined);
+    resetCircuitBreaker();
+    // Clean up temp directory
+    await rm(tempDir, {force: true, recursive: true});
+  });
+
+  it('logMcpRequest writes a JSON file to disk', async () => {
+    await logMcpRequest('test_tool', {foo: 'bar'}, 'req-123');
+
+    // Find the written file
+    const dateDir = await findFirstSubdir(tempDir);
+    expect(dateDir).toBeDefined();
+
+    const sessionDir = await findFirstSubdir(join(tempDir, dateDir ?? ''));
+    expect(sessionDir).toBeDefined();
+
+    const sessionPath = join(tempDir, dateDir ?? '', sessionDir ?? '');
+    const files = await readdir(sessionPath);
+    expect(files.length).toBe(1);
+
+    const firstFile = files[0];
+    expect(firstFile).toBeDefined();
+    expect(firstFile).toMatch(/mcp_test_tool_req\.json$/);
+
+    const raw = await readFile(join(sessionPath, firstFile ?? ''), 'utf-8');
+    const content = McpRequestPayloadSchema.parse(JSON.parse(raw));
+    expect(content.tool).toBe('test_tool');
+    expect(content.arguments).toEqual({foo: 'bar'});
+    expect(content.requestId).toBe('req-123');
+    expect(content.sessionId).toBeDefined();
+    expect(content.timestamp).toBeDefined();
+  });
+
+  it('logMcpResponse writes response payload to disk', async () => {
+    const startTime = performance.now();
+    await logMcpResponse('test_tool', startTime, {result: 'ok'}, 'req-456');
+
+    const files = await findAllPayloadFiles(tempDir);
+    expect(files.length).toBe(1);
+
+    const firstFile = files[0];
+    expect(firstFile).toBeDefined();
+
+    const raw = await readFile(firstFile ?? '', 'utf-8');
+    const content = McpResponsePayloadSchema.parse(JSON.parse(raw));
+    expect(content.tool).toBe('test_tool');
+    expect(content.success).toBe(true);
+    expect(content.response).toEqual({result: 'ok'});
+    expect(content.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('writes multiple payloads with incrementing sequence numbers', async () => {
+    await logMcpRequest('tool_a', {}, 'req-1');
+    await logMcpRequest('tool_b', {}, 'req-2');
+    await logMcpRequest('tool_c', {}, 'req-3');
+
+    const files = await findAllPayloadFiles(tempDir);
+    expect(files.length).toBe(3);
+
+    // Filenames should have incrementing sequence prefixes
+    const filenames = files
+      .map((f) => {
+        const parts = f.split('/');
+        return parts[parts.length - 1] ?? '';
+      })
+      .sort();
+    expect(filenames[0]).toMatch(/^000001_/);
+    expect(filenames[1]).toMatch(/^000002_/);
+    expect(filenames[2]).toMatch(/^000003_/);
+  });
+
+  it('does not write files when logging is disabled', async () => {
+    process.env['YNAB_PAYLOAD_LOGGING'] = 'false';
+
+    await logMcpRequest('test_tool', {foo: 'bar'});
+
+    const entries = await readdir(tempDir);
+    expect(entries.length).toBe(0);
+  });
+});
+
+// ============================================================================
+// Integration Tests - Purge
+// ============================================================================
+
+describe('purgeOldPayloads integration', () => {
+  let tempDir: string;
+  let originalPayloadDir: string | undefined;
+  let originalAutoPurge: string | undefined;
+  let originalRetention: string | undefined;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'ynab-purge-test-'));
+    originalPayloadDir = process.env['YNAB_PAYLOAD_DIR'];
+    originalAutoPurge = process.env['YNAB_PAYLOAD_AUTO_PURGE'];
+    originalRetention = process.env['YNAB_PAYLOAD_RETENTION_DAYS'];
+    process.env['YNAB_PAYLOAD_DIR'] = tempDir;
+  });
+
+  afterEach(async () => {
+    if (originalPayloadDir === undefined) {
+      delete process.env['YNAB_PAYLOAD_DIR'];
+    } else {
+      process.env['YNAB_PAYLOAD_DIR'] = originalPayloadDir;
+    }
+    if (originalAutoPurge === undefined) {
+      delete process.env['YNAB_PAYLOAD_AUTO_PURGE'];
+    } else {
+      process.env['YNAB_PAYLOAD_AUTO_PURGE'] = originalAutoPurge;
+    }
+    if (originalRetention === undefined) {
+      delete process.env['YNAB_PAYLOAD_RETENTION_DAYS'];
+    } else {
+      process.env['YNAB_PAYLOAD_RETENTION_DAYS'] = originalRetention;
+    }
+    await rm(tempDir, {force: true, recursive: true});
+  });
+
+  it('deletes directories older than retention period', async () => {
+    process.env['YNAB_PAYLOAD_AUTO_PURGE'] = 'true';
+    process.env['YNAB_PAYLOAD_RETENTION_DAYS'] = '7';
+
+    // Create an old date directory (30 days ago)
+    const oldDate = new Date();
+    oldDate.setDate(oldDate.getDate() - 30);
+    const oldDirName = oldDate.toISOString().slice(0, 10);
+    const oldDirPath = join(tempDir, oldDirName);
+    await mkdir(oldDirPath, {recursive: true});
+    await writeFile(join(oldDirPath, 'test.json'), '{}');
+
+    // Create a recent date directory (2 days ago)
+    const recentDate = new Date();
+    recentDate.setDate(recentDate.getDate() - 2);
+    const recentDirName = recentDate.toISOString().slice(0, 10);
+    const recentDirPath = join(tempDir, recentDirName);
+    await mkdir(recentDirPath, {recursive: true});
+    await writeFile(join(recentDirPath, 'test.json'), '{}');
+
+    const purged = await purgeOldPayloads();
+
+    expect(purged).toBe(1);
+
+    const remaining = await readdir(tempDir);
+    expect(remaining).toContain(recentDirName);
+    expect(remaining).not.toContain(oldDirName);
+  });
+
+  it('does not purge when auto-purge is disabled', async () => {
+    process.env['YNAB_PAYLOAD_AUTO_PURGE'] = 'false';
+
+    // Create an old directory
+    const oldDirPath = join(tempDir, '2020-01-01');
+    await mkdir(oldDirPath, {recursive: true});
+
+    const purged = await purgeOldPayloads();
+    expect(purged).toBe(0);
+
+    // Directory should still exist
+    const remaining = await readdir(tempDir);
+    expect(remaining).toContain('2020-01-01');
+  });
+
+  it('handles non-existent payload directory gracefully', async () => {
+    process.env['YNAB_PAYLOAD_AUTO_PURGE'] = 'true';
+    process.env['YNAB_PAYLOAD_DIR'] = join(tempDir, 'does-not-exist');
+
+    // Should not throw
+    const purged = await purgeOldPayloads();
+    expect(purged).toBe(0);
+  });
+
+  it('ignores non-date directories', async () => {
+    process.env['YNAB_PAYLOAD_AUTO_PURGE'] = 'true';
+    process.env['YNAB_PAYLOAD_RETENTION_DAYS'] = '1';
+
+    // Create a non-date directory
+    await mkdir(join(tempDir, 'not-a-date'), {recursive: true});
+    // Create a regular file
+    await writeFile(join(tempDir, 'stray-file.txt'), 'hello');
+
+    const purged = await purgeOldPayloads();
+    expect(purged).toBe(0);
+
+    // Both should still exist
+    const remaining = await readdir(tempDir);
+    expect(remaining).toContain('not-a-date');
+    expect(remaining).toContain('stray-file.txt');
   });
 });
