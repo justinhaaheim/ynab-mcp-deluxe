@@ -516,10 +516,7 @@ export async function logYnabResponse(
   const operation = extractYnabOperation(url);
   const durationMs = Math.round(performance.now() - startTime);
 
-  const responseHeaders: Record<string, string> = {};
-  response.headers.forEach((value, key) => {
-    responseHeaders[key] = value;
-  });
+  const responseHeaders = sanitizeHeaders(response.headers);
 
   const payload: YnabResponsePayload = {
     body,
@@ -616,7 +613,9 @@ export async function purgeOldPayloads(): Promise<number> {
     }
   } catch (error) {
     // Directory might not exist yet, which is fine
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+    if (
+      !(error instanceof Error && 'code' in error && error.code === 'ENOENT')
+    ) {
       fileLogger.error('Failed to purge old payloads', {
         error: error instanceof Error ? error.message : String(error),
       });

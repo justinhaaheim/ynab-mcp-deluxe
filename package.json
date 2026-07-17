@@ -65,6 +65,7 @@
     ]
   },
   "dependencies": {
+    "@beads/bd": "0.49.6",
     "@metrichor/jmespath": "^0.3.1",
     "deep-diff": "^1.0.2",
     "fastmcp": "3.30.1",
@@ -101,5 +102,8 @@
   },
   "patchedDependencies": {
     "ynab@2.10.0": "patches/ynab@2.10.0.patch"
-  }
+  },
+  "trustedDependencies": [
+    "@beads/bd"
+  ]
 }
