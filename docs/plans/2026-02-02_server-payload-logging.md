@@ -59,9 +59,7 @@ This captures:
   "timestamp": "2026-02-02T14:32:15.123Z",
   "requestId": "abc-123",
   "tool": "query_transactions",
-  "arguments": {
-    /* full args */
-  }
+  "arguments": {/* full args */}
 }
 ```
 
@@ -74,9 +72,7 @@ This captures:
   "tool": "query_transactions",
   "durationMs": 3333,
   "success": true,
-  "response": {
-    /* full response or error */
-  }
+  "response": {/* full response or error */}
 }
 ```
 
@@ -87,9 +83,7 @@ This captures:
   "timestamp": "2026-02-02T14:32:16.000Z",
   "method": "GET",
   "url": "https://api.ynab.com/v1/budgets/xxx",
-  "headers": {
-    /* sanitized - no auth token */
-  }
+  "headers": {/* sanitized - no auth token */}
 }
 ```
 
@@ -102,12 +96,8 @@ This captures:
   "url": "https://api.ynab.com/v1/budgets/xxx",
   "status": 200,
   "durationMs": 1500,
-  "headers": {
-    /* response headers */
-  },
-  "body": {
-    /* full JSON body */
-  }
+  "headers": {/* response headers */},
+  "body": {/* full JSON body */}
 }
 ```
 

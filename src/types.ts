@@ -388,10 +388,7 @@ export type TransactionStatus = 'uncategorized' | 'unapproved' | 'all';
  * Sort options for transactions
  */
 export type TransactionSortBy =
-  | 'newest'
-  | 'oldest'
-  | 'amount_desc'
-  | 'amount_asc';
+  'newest' | 'oldest' | 'amount_desc' | 'amount_asc';
 
 /**
  * Update subtransaction input (for split transactions)
