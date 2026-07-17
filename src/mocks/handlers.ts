@@ -25,6 +25,42 @@ const next = (apiKey: string) => {
   return currentCount;
 };
 
+// Helper to generate a single transaction detail
+const generateTransactionDetail = () => ({
+  id: faker.string.uuid(),
+  date: faker.date.past().toISOString().substring(0, 10),
+  amount: faker.number.int(),
+  memo: faker.lorem.words(),
+  cleared: faker.helpers.arrayElement(['cleared', 'uncleared', 'reconciled']),
+  approved: faker.datatype.boolean(),
+  flag_color: faker.helpers.arrayElement([
+    'red',
+    'orange',
+    'yellow',
+    'green',
+    'blue',
+    'purple',
+    '',
+    null,
+  ]),
+  flag_name: faker.person.fullName(),
+  account_id: faker.string.uuid(),
+  payee_id: faker.string.uuid(),
+  category_id: faker.string.uuid(),
+  transfer_account_id: null,
+  transfer_transaction_id: null,
+  matched_transaction_id: null,
+  import_id: null,
+  import_payee_name: null,
+  import_payee_name_original: null,
+  debt_transaction_type: null,
+  deleted: false,
+  account_name: faker.company.name(),
+  payee_name: faker.person.fullName(),
+  category_name: faker.commerce.department(),
+  subtransactions: [],
+});
+
 export const handlers = [
   http.get(`${baseURL}/user`, async () => {
     const resultArray = [[getGetUser200Response(), {status: 200}]] as [
@@ -79,17 +115,21 @@ export const handlers = [
       ],
     );
   }),
-  http.post(`${baseURL}/budgets/:budgetId/accounts`, async () => {
-    const resultArray = [[getCreateAccount201Response(), {status: 201}]] as [
-      any,
-      {status: number},
-    ][];
+  http.post(`${baseURL}/budgets/:budgetId/accounts`, async ({request}) => {
+    // Read the request body to return matching account properties
+    const body = (await request.json()) as {
+      account?: {name: string; type: string; balance: number};
+    };
+    const baseResponse = getCreateAccount201Response();
 
-    return HttpResponse.json(
-      ...resultArray[
-        next(`post /budgets/:budgetId/accounts`) % resultArray.length
-      ],
-    );
+    // If request contains account, return matching properties
+    if (body.account) {
+      baseResponse.data.account.name = body.account.name;
+      baseResponse.data.account.type = body.account.type;
+      baseResponse.data.account.balance = body.account.balance;
+    }
+
+    return HttpResponse.json(baseResponse, {status: 201});
   }),
   http.get(`${baseURL}/budgets/:budgetId/accounts/:accountId`, async () => {
     const resultArray = [[getGetAccountById200Response(), {status: 200}]] as [
@@ -161,18 +201,11 @@ export const handlers = [
   ),
   http.patch(
     `${baseURL}/budgets/:budgetId/months/:month/categories/:categoryId`,
-    async () => {
-      const resultArray = [
-        [getUpdateMonthCategory200Response(), {status: 200}],
-      ] as [any, {status: number}][];
-
-      return HttpResponse.json(
-        ...resultArray[
-          next(
-            `patch /budgets/:budgetId/months/:month/categories/:categoryId`,
-          ) % resultArray.length
-        ],
-      );
+    async ({params}) => {
+      const baseResponse = getUpdateMonthCategory200Response();
+      // Return the category with the ID from the URL
+      baseResponse.data.category.id = params.categoryId as string;
+      return HttpResponse.json(baseResponse, {status: 200});
     },
   ),
   http.get(`${baseURL}/budgets/:budgetId/payees`, async () => {
@@ -288,27 +321,38 @@ export const handlers = [
       ],
     );
   }),
-  http.post(`${baseURL}/budgets/:budgetId/transactions`, async () => {
-    const resultArray = [
-      [getCreateTransaction201Response(), {status: 201}],
-    ] as [any, {status: number}][];
+  http.post(`${baseURL}/budgets/:budgetId/transactions`, async ({request}) => {
+    // Read the request body to return matching transaction count
+    const body = (await request.json()) as {transactions?: unknown[]};
+    const baseResponse = getCreateTransaction201Response();
 
-    return HttpResponse.json(
-      ...resultArray[
-        next(`post /budgets/:budgetId/transactions`) % resultArray.length
-      ],
-    );
+    // If request contains transactions, create response with matching count
+    if (body.transactions && body.transactions.length > 0) {
+      baseResponse.data.transactions = body.transactions.map(() =>
+        generateTransactionDetail(),
+      );
+      // Clear duplicate_import_ids since we're creating all new transactions
+      baseResponse.data.duplicate_import_ids = [];
+    }
+
+    return HttpResponse.json(baseResponse, {status: 201});
   }),
-  http.patch(`${baseURL}/budgets/:budgetId/transactions`, async () => {
-    const resultArray = [
-      [getUpdateTransactions200Response(), {status: 200}],
-    ] as [any, {status: number}][];
+  http.patch(`${baseURL}/budgets/:budgetId/transactions`, async ({request}) => {
+    // Read the request body to return matching transaction IDs
+    const body = (await request.json()) as {transactions?: {id: string}[]};
+    const baseResponse = getUpdateTransactions200Response();
 
-    return HttpResponse.json(
-      ...resultArray[
-        next(`patch /budgets/:budgetId/transactions`) % resultArray.length
-      ],
-    );
+    // If request contains transactions, create response with matching IDs
+    if (body.transactions && body.transactions.length > 0) {
+      baseResponse.data.transactions = body.transactions.map(
+        (tx: {id: string}) => ({
+          ...generateTransactionDetail(),
+          id: tx.id,
+        }),
+      );
+    }
+
+    return HttpResponse.json(baseResponse, {status: 200});
   }),
   http.post(`${baseURL}/budgets/:budgetId/transactions/import`, async () => {
     const resultArray = [
@@ -354,17 +398,11 @@ export const handlers = [
   ),
   http.delete(
     `${baseURL}/budgets/:budgetId/transactions/:transactionId`,
-    async () => {
-      const resultArray = [
-        [getDeleteTransaction200Response(), {status: 200}],
-      ] as [any, {status: number}][];
-
-      return HttpResponse.json(
-        ...resultArray[
-          next(`delete /budgets/:budgetId/transactions/:transactionId`) %
-            resultArray.length
-        ],
-      );
+    async ({params}) => {
+      const baseResponse = getDeleteTransaction200Response();
+      // Return the deleted transaction with the ID from the URL
+      baseResponse.data.transaction.id = params.transactionId as string;
+      return HttpResponse.json(baseResponse, {status: 200});
     },
   ),
   http.get(
