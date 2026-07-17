@@ -136,3 +136,17 @@ vendor-analysis/
 
 # Delta sync investigation artifacts
 delta-investigation-results/
+
+# Dynamic version artifacts (local-only)
+dynamic-version.local.json
+dynamic-version.local.d.ts
+
+# justin-sdk baseline (appended)
+build/
+coverage/
+*.tsbuildinfo
+.env
+.env.local
+.beads/.br_recovery/
+.beads/.local_version
+.claude/worktrees/

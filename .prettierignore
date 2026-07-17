@@ -16,3 +16,9 @@ coverage
 /tmp
 
 **/CLAUDE.md
+
+.beads
+
+*.log
+
+**/.claude/worktrees/
