@@ -106,7 +106,7 @@ dist-ssr/
 *.local
 
 # Editor directories and files
-.vscode/*
+# .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
@@ -132,3 +132,4 @@ reference-projects/
 
 # bv (beads viewer) local config and caches
 .bv/
+vendor-analysis/

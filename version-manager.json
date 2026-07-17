@@ -1,3 +1,3 @@
 {
-  "versionCalculationMode": "append-commits"
+  "versionCalculationMode": "add-to-patch"
 }

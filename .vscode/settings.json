@@ -1,0 +1,82 @@
+{
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "[javascript]": {
+    "editor.codeActionsOnSave": [
+      // Run ESLint fixers _before_ prettier to ensure the user doesn't need to do multiple saves
+      "source.fixAll.eslint",
+      "source.fixAll.format"
+    ]
+  },
+  "[typescript]": {
+    "editor.codeActionsOnSave": [
+      // Run ESLint fixers _before_ prettier to ensure the user doesn't need to do multiple saves
+      "source.fixAll.eslint",
+      "source.fixAll.format"
+    ]
+  },
+  "[typescriptreact]": {
+    "editor.codeActionsOnSave": [
+      // Run ESLint fixers _before_ prettier to ensure the user doesn't need to do multiple saves
+      "source.fixAll.eslint",
+      "source.fixAll.format"
+    ]
+  },
+  // "typescript.tsdk": "node_modules/typescript/lib",
+  "search.exclude": {
+    "**/.yarn": true,
+    "**/package-lock.json": true
+  },
+  "typescript.tsdk": "node_modules/typescript/lib",
+
+  // Tell VSCode to use non-relative imports by default
+  "typescript.preferences.importModuleSpecifier": "non-relative",
+  "javascript.preferences.importModuleSpecifier": "non-relative",
+
+  "colorize.languages": ["javascript", "typescript", "typescriptreact"],
+  // "workbench.colorCustomizations": {
+  //   "activityBar.activeBackground": "#ab307e",
+  //   "activityBar.background": "#ab307e",
+  //   "activityBar.foreground": "#e7e7e7",
+  //   "activityBar.inactiveForeground": "#e7e7e799",
+  //   "activityBarBadge.background": "#25320e",
+  //   "activityBarBadge.foreground": "#e7e7e7",
+  //   "commandCenter.border": "#e7e7e799",
+  //   "sash.hoverBorder": "#ab307e",
+  //   "statusBar.background": "#832561",
+  //   "statusBar.foreground": "#e7e7e7",
+  //   "statusBarItem.hoverBackground": "#ab307e",
+  //   "statusBarItem.remoteBackground": "#832561",
+  //   "statusBarItem.remoteForeground": "#e7e7e7",
+  //   "titleBar.activeBackground": "#832561",
+  //   "titleBar.activeForeground": "#e7e7e7",
+  //   "titleBar.inactiveBackground": "#83256199",
+  //   "titleBar.inactiveForeground": "#e7e7e799"
+  // },
+  "peacock.color": "#2a0b42",
+  "workbench.colorCustomizations": {
+    "activityBar.activeBackground": "#46126e",
+    "activityBar.background": "#46126e",
+    "activityBar.foreground": "#e7e7e7",
+    "activityBar.inactiveForeground": "#e7e7e799",
+    "activityBarBadge.background": "#895716",
+    "activityBarBadge.foreground": "#e7e7e7",
+    "commandCenter.border": "#e7e7e799",
+    "sash.hoverBorder": "#46126e",
+    "statusBar.background": "#2a0b42",
+    "statusBar.foreground": "#e7e7e7",
+    "statusBarItem.hoverBackground": "#46126e",
+    "statusBarItem.remoteBackground": "#2a0b42",
+    "statusBarItem.remoteForeground": "#e7e7e7",
+    "titleBar.activeBackground": "#2a0b42",
+    "titleBar.activeForeground": "#e7e7e7",
+    "titleBar.inactiveBackground": "#2a0b4299",
+    "titleBar.inactiveForeground": "#e7e7e799"
+  }
+
+  // Eslint stuff:
+  // "eslint.debug": true
+  // "eslint.options": {
+  //   "extensions": [".cjs", ".js", ".jsx", ".ts", ".tsx"]
+  // }
+}

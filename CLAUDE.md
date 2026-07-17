@@ -27,6 +27,9 @@ src/
   types.ts            # TypeScript type definitions (Enriched* types)
   helpers.ts          # Utility functions (JMESPath, filtering, sorting)
   backup.ts           # Auto-backup and manual backup utilities
+  payload-logger.ts   # Request/response payload logging to disk
+  fetch-interceptor.ts # YNAB API HTTP request/response interceptor
+  tool-logging.ts     # MCP tool execution logging wrapper
   *.test.ts           # Tests co-located with source (Vitest)
   mocks/              # MSW handlers for testing
 docs/
@@ -151,6 +154,10 @@ The `validateSelector()` helper ensures exactly one of `id` or `name` is provide
 | `YNAB_ALWAYS_FULL_SYNC` | No | `false` | Skip delta sync, always fetch full budget |
 | `YNAB_DRIFT_CHECK_INTERVAL_SYNCS` | No | `1` | Check for drift every N syncs |
 | `YNAB_DRIFT_CHECK_INTERVAL_MINUTES` | No | `0` | Check for drift every N minutes (0 = disabled) |
+| `YNAB_PAYLOAD_LOGGING` | No | `true` | Enable/disable payload logging (set to `false` to disable) |
+| `YNAB_PAYLOAD_AUTO_PURGE` | No | `false` | Enable auto-purging of old payload logs |
+| `YNAB_PAYLOAD_RETENTION_DAYS` | No | `30` | Days to retain payload logs before purging (if auto-purge enabled) |
+| `YNAB_PAYLOAD_DIR` | No | `~/.config/ynab-mcp-deluxe/payloads` | Custom directory for payload logs |
 
 ## Testing
 
