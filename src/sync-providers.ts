@@ -9,7 +9,7 @@
  */
 
 import type {SyncProvider} from './types.js';
-import type {BudgetDetail} from 'ynab';
+import type {PlanDetail as BudgetDetail} from 'ynab';
 
 import {api as YnabApi} from 'ynab';
 
@@ -30,9 +30,9 @@ export class ApiSyncProvider implements SyncProvider {
   async fullSync(
     budgetId: string,
   ): Promise<{budget: BudgetDetail; serverKnowledge: number}> {
-    const response = await this.api.budgets.getBudgetById(budgetId);
+    const response = await this.api.plans.getPlanById(budgetId);
     return {
-      budget: response.data.budget,
+      budget: response.data.plan,
       serverKnowledge: response.data.server_knowledge,
     };
   }
@@ -44,12 +44,9 @@ export class ApiSyncProvider implements SyncProvider {
     budgetId: string,
     lastKnowledge: number,
   ): Promise<{budget: BudgetDetail; serverKnowledge: number}> {
-    const response = await this.api.budgets.getBudgetById(
-      budgetId,
-      lastKnowledge,
-    );
+    const response = await this.api.plans.getPlanById(budgetId, lastKnowledge);
     return {
-      budget: response.data.budget,
+      budget: response.data.plan,
       serverKnowledge: response.data.server_knowledge,
     };
   }

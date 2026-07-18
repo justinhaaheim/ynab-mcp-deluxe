@@ -12,7 +12,7 @@
  */
 
 import type {SyncHistoryEntry, SyncType} from './types.js';
-import type {BudgetDetail} from 'ynab';
+import type {PlanDetail as BudgetDetail} from 'ynab';
 
 import {mkdir, readdir, rm, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';

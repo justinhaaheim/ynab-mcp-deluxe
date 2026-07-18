@@ -72,38 +72,38 @@ export const handlers = [
       ...resultArray[next(`get /user`) % resultArray.length],
     );
   }),
-  http.get(`${baseURL}/budgets`, async () => {
+  http.get(`${baseURL}/plans`, async () => {
     const resultArray = [[getGetBudgets200Response(), {status: 200}]] as [
       any,
       {status: number},
     ][];
 
     return HttpResponse.json(
-      ...resultArray[next(`get /budgets`) % resultArray.length],
+      ...resultArray[next(`get /plans`) % resultArray.length],
     );
   }),
-  http.get(`${baseURL}/budgets/:budgetId`, async () => {
+  http.get(`${baseURL}/plans/:budgetId`, async () => {
     const resultArray = [[getGetBudgetById200Response(), {status: 200}]] as [
       any,
       {status: number},
     ][];
 
     return HttpResponse.json(
-      ...resultArray[next(`get /budgets/:budgetId`) % resultArray.length],
+      ...resultArray[next(`get /plans/:budgetId`) % resultArray.length],
     );
   }),
-  http.get(`${baseURL}/budgets/:budgetId/settings`, async () => {
+  http.get(`${baseURL}/plans/:budgetId/settings`, async () => {
     const resultArray = [
       [getGetBudgetSettingsById200Response(), {status: 200}],
     ] as [any, {status: number}][];
 
     return HttpResponse.json(
       ...resultArray[
-        next(`get /budgets/:budgetId/settings`) % resultArray.length
+        next(`get /plans/:budgetId/settings`) % resultArray.length
       ],
     );
   }),
-  http.get(`${baseURL}/budgets/:budgetId/accounts`, async () => {
+  http.get(`${baseURL}/plans/:budgetId/accounts`, async () => {
     const resultArray = [[getGetAccounts200Response(), {status: 200}]] as [
       any,
       {status: number},
@@ -111,11 +111,11 @@ export const handlers = [
 
     return HttpResponse.json(
       ...resultArray[
-        next(`get /budgets/:budgetId/accounts`) % resultArray.length
+        next(`get /plans/:budgetId/accounts`) % resultArray.length
       ],
     );
   }),
-  http.post(`${baseURL}/budgets/:budgetId/accounts`, async ({request}) => {
+  http.post(`${baseURL}/plans/:budgetId/accounts`, async ({request}) => {
     // Read the request body to return matching account properties
     const body = (await request.json()) as {
       account?: {name: string; type: string; balance: number};
@@ -131,7 +131,7 @@ export const handlers = [
 
     return HttpResponse.json(baseResponse, {status: 201});
   }),
-  http.get(`${baseURL}/budgets/:budgetId/accounts/:accountId`, async () => {
+  http.get(`${baseURL}/plans/:budgetId/accounts/:accountId`, async () => {
     const resultArray = [[getGetAccountById200Response(), {status: 200}]] as [
       any,
       {status: number},
@@ -139,11 +139,11 @@ export const handlers = [
 
     return HttpResponse.json(
       ...resultArray[
-        next(`get /budgets/:budgetId/accounts/:accountId`) % resultArray.length
+        next(`get /plans/:budgetId/accounts/:accountId`) % resultArray.length
       ],
     );
   }),
-  http.get(`${baseURL}/budgets/:budgetId/categories`, async () => {
+  http.get(`${baseURL}/plans/:budgetId/categories`, async () => {
     const resultArray = [[getGetCategories200Response(), {status: 200}]] as [
       any,
       {status: number},
@@ -151,11 +151,11 @@ export const handlers = [
 
     return HttpResponse.json(
       ...resultArray[
-        next(`get /budgets/:budgetId/categories`) % resultArray.length
+        next(`get /plans/:budgetId/categories`) % resultArray.length
       ],
     );
   }),
-  http.get(`${baseURL}/budgets/:budgetId/categories/:categoryId`, async () => {
+  http.get(`${baseURL}/plans/:budgetId/categories/:categoryId`, async () => {
     const resultArray = [[getGetCategoryById200Response(), {status: 200}]] as [
       any,
       {status: number},
@@ -163,29 +163,25 @@ export const handlers = [
 
     return HttpResponse.json(
       ...resultArray[
-        next(`get /budgets/:budgetId/categories/:categoryId`) %
+        next(`get /plans/:budgetId/categories/:categoryId`) % resultArray.length
+      ],
+    );
+  }),
+  http.patch(`${baseURL}/plans/:budgetId/categories/:categoryId`, async () => {
+    const resultArray = [[getUpdateCategory200Response(), {status: 200}]] as [
+      any,
+      {status: number},
+    ][];
+
+    return HttpResponse.json(
+      ...resultArray[
+        next(`patch /plans/:budgetId/categories/:categoryId`) %
           resultArray.length
       ],
     );
   }),
-  http.patch(
-    `${baseURL}/budgets/:budgetId/categories/:categoryId`,
-    async () => {
-      const resultArray = [[getUpdateCategory200Response(), {status: 200}]] as [
-        any,
-        {status: number},
-      ][];
-
-      return HttpResponse.json(
-        ...resultArray[
-          next(`patch /budgets/:budgetId/categories/:categoryId`) %
-            resultArray.length
-        ],
-      );
-    },
-  ),
   http.get(
-    `${baseURL}/budgets/:budgetId/months/:month/categories/:categoryId`,
+    `${baseURL}/plans/:budgetId/months/:month/categories/:categoryId`,
     async () => {
       const resultArray = [
         [getGetMonthCategoryById200Response(), {status: 200}],
@@ -193,14 +189,14 @@ export const handlers = [
 
       return HttpResponse.json(
         ...resultArray[
-          next(`get /budgets/:budgetId/months/:month/categories/:categoryId`) %
+          next(`get /plans/:budgetId/months/:month/categories/:categoryId`) %
             resultArray.length
         ],
       );
     },
   ),
   http.patch(
-    `${baseURL}/budgets/:budgetId/months/:month/categories/:categoryId`,
+    `${baseURL}/plans/:budgetId/months/:month/categories/:categoryId`,
     async ({params}) => {
       const baseResponse = getUpdateMonthCategory200Response();
       // Return the category with the ID from the URL
@@ -208,19 +204,17 @@ export const handlers = [
       return HttpResponse.json(baseResponse, {status: 200});
     },
   ),
-  http.get(`${baseURL}/budgets/:budgetId/payees`, async () => {
+  http.get(`${baseURL}/plans/:budgetId/payees`, async () => {
     const resultArray = [[getGetPayees200Response(), {status: 200}]] as [
       any,
       {status: number},
     ][];
 
     return HttpResponse.json(
-      ...resultArray[
-        next(`get /budgets/:budgetId/payees`) % resultArray.length
-      ],
+      ...resultArray[next(`get /plans/:budgetId/payees`) % resultArray.length],
     );
   }),
-  http.get(`${baseURL}/budgets/:budgetId/payees/:payeeId`, async () => {
+  http.get(`${baseURL}/plans/:budgetId/payees/:payeeId`, async () => {
     const resultArray = [[getGetPayeeById200Response(), {status: 200}]] as [
       any,
       {status: number},
@@ -228,11 +222,11 @@ export const handlers = [
 
     return HttpResponse.json(
       ...resultArray[
-        next(`get /budgets/:budgetId/payees/:payeeId`) % resultArray.length
+        next(`get /plans/:budgetId/payees/:payeeId`) % resultArray.length
       ],
     );
   }),
-  http.patch(`${baseURL}/budgets/:budgetId/payees/:payeeId`, async () => {
+  http.patch(`${baseURL}/plans/:budgetId/payees/:payeeId`, async () => {
     const resultArray = [[getUpdatePayee200Response(), {status: 200}]] as [
       any,
       {status: number},
@@ -240,23 +234,23 @@ export const handlers = [
 
     return HttpResponse.json(
       ...resultArray[
-        next(`patch /budgets/:budgetId/payees/:payeeId`) % resultArray.length
+        next(`patch /plans/:budgetId/payees/:payeeId`) % resultArray.length
       ],
     );
   }),
-  http.get(`${baseURL}/budgets/:budgetId/payee_locations`, async () => {
+  http.get(`${baseURL}/plans/:budgetId/payee_locations`, async () => {
     const resultArray = [
       [getGetPayeeLocations200Response(), {status: 200}],
     ] as [any, {status: number}][];
 
     return HttpResponse.json(
       ...resultArray[
-        next(`get /budgets/:budgetId/payee_locations`) % resultArray.length
+        next(`get /plans/:budgetId/payee_locations`) % resultArray.length
       ],
     );
   }),
   http.get(
-    `${baseURL}/budgets/:budgetId/payee_locations/:payeeLocationId`,
+    `${baseURL}/plans/:budgetId/payee_locations/:payeeLocationId`,
     async () => {
       const resultArray = [
         [getGetPayeeLocationById200Response(), {status: 200}],
@@ -264,14 +258,14 @@ export const handlers = [
 
       return HttpResponse.json(
         ...resultArray[
-          next(`get /budgets/:budgetId/payee_locations/:payeeLocationId`) %
+          next(`get /plans/:budgetId/payee_locations/:payeeLocationId`) %
             resultArray.length
         ],
       );
     },
   ),
   http.get(
-    `${baseURL}/budgets/:budgetId/payees/:payeeId/payee_locations`,
+    `${baseURL}/plans/:budgetId/payees/:payeeId/payee_locations`,
     async () => {
       const resultArray = [
         [getGetPayeeLocationsByPayee200Response(), {status: 200}],
@@ -279,25 +273,23 @@ export const handlers = [
 
       return HttpResponse.json(
         ...resultArray[
-          next(`get /budgets/:budgetId/payees/:payeeId/payee_locations`) %
+          next(`get /plans/:budgetId/payees/:payeeId/payee_locations`) %
             resultArray.length
         ],
       );
     },
   ),
-  http.get(`${baseURL}/budgets/:budgetId/months`, async () => {
+  http.get(`${baseURL}/plans/:budgetId/months`, async () => {
     const resultArray = [[getGetBudgetMonths200Response(), {status: 200}]] as [
       any,
       {status: number},
     ][];
 
     return HttpResponse.json(
-      ...resultArray[
-        next(`get /budgets/:budgetId/months`) % resultArray.length
-      ],
+      ...resultArray[next(`get /plans/:budgetId/months`) % resultArray.length],
     );
   }),
-  http.get(`${baseURL}/budgets/:budgetId/months/:month`, async () => {
+  http.get(`${baseURL}/plans/:budgetId/months/:month`, async () => {
     const resultArray = [[getGetBudgetMonth200Response(), {status: 200}]] as [
       any,
       {status: number},
@@ -305,11 +297,11 @@ export const handlers = [
 
     return HttpResponse.json(
       ...resultArray[
-        next(`get /budgets/:budgetId/months/:month`) % resultArray.length
+        next(`get /plans/:budgetId/months/:month`) % resultArray.length
       ],
     );
   }),
-  http.get(`${baseURL}/budgets/:budgetId/transactions`, async () => {
+  http.get(`${baseURL}/plans/:budgetId/transactions`, async () => {
     const resultArray = [[getGetTransactions200Response(), {status: 200}]] as [
       any,
       {status: number},
@@ -317,11 +309,11 @@ export const handlers = [
 
     return HttpResponse.json(
       ...resultArray[
-        next(`get /budgets/:budgetId/transactions`) % resultArray.length
+        next(`get /plans/:budgetId/transactions`) % resultArray.length
       ],
     );
   }),
-  http.post(`${baseURL}/budgets/:budgetId/transactions`, async ({request}) => {
+  http.post(`${baseURL}/plans/:budgetId/transactions`, async ({request}) => {
     // Read the request body to return matching transaction count
     const body = (await request.json()) as {transactions?: unknown[]};
     const baseResponse = getCreateTransaction201Response();
@@ -337,7 +329,7 @@ export const handlers = [
 
     return HttpResponse.json(baseResponse, {status: 201});
   }),
-  http.patch(`${baseURL}/budgets/:budgetId/transactions`, async ({request}) => {
+  http.patch(`${baseURL}/plans/:budgetId/transactions`, async ({request}) => {
     // Read the request body to return matching transaction IDs
     const body = (await request.json()) as {transactions?: {id: string}[]};
     const baseResponse = getUpdateTransactions200Response();
@@ -354,7 +346,7 @@ export const handlers = [
 
     return HttpResponse.json(baseResponse, {status: 200});
   }),
-  http.post(`${baseURL}/budgets/:budgetId/transactions/import`, async () => {
+  http.post(`${baseURL}/plans/:budgetId/transactions/import`, async () => {
     const resultArray = [
       [getImportTransactions200Response(), {status: 200}],
       [getImportTransactions201Response(), {status: 201}],
@@ -362,12 +354,12 @@ export const handlers = [
 
     return HttpResponse.json(
       ...resultArray[
-        next(`post /budgets/:budgetId/transactions/import`) % resultArray.length
+        next(`post /plans/:budgetId/transactions/import`) % resultArray.length
       ],
     );
   }),
   http.get(
-    `${baseURL}/budgets/:budgetId/transactions/:transactionId`,
+    `${baseURL}/plans/:budgetId/transactions/:transactionId`,
     async () => {
       const resultArray = [
         [getGetTransactionById200Response(), {status: 200}],
@@ -375,14 +367,14 @@ export const handlers = [
 
       return HttpResponse.json(
         ...resultArray[
-          next(`get /budgets/:budgetId/transactions/:transactionId`) %
+          next(`get /plans/:budgetId/transactions/:transactionId`) %
             resultArray.length
         ],
       );
     },
   ),
   http.put(
-    `${baseURL}/budgets/:budgetId/transactions/:transactionId`,
+    `${baseURL}/plans/:budgetId/transactions/:transactionId`,
     async () => {
       const resultArray = [
         [getUpdateTransaction200Response(), {status: 200}],
@@ -390,14 +382,14 @@ export const handlers = [
 
       return HttpResponse.json(
         ...resultArray[
-          next(`put /budgets/:budgetId/transactions/:transactionId`) %
+          next(`put /plans/:budgetId/transactions/:transactionId`) %
             resultArray.length
         ],
       );
     },
   ),
   http.delete(
-    `${baseURL}/budgets/:budgetId/transactions/:transactionId`,
+    `${baseURL}/plans/:budgetId/transactions/:transactionId`,
     async ({params}) => {
       const baseResponse = getDeleteTransaction200Response();
       // Return the deleted transaction with the ID from the URL
@@ -406,7 +398,7 @@ export const handlers = [
     },
   ),
   http.get(
-    `${baseURL}/budgets/:budgetId/accounts/:accountId/transactions`,
+    `${baseURL}/plans/:budgetId/accounts/:accountId/transactions`,
     async () => {
       const resultArray = [
         [getGetTransactionsByAccount200Response(), {status: 200}],
@@ -414,14 +406,14 @@ export const handlers = [
 
       return HttpResponse.json(
         ...resultArray[
-          next(`get /budgets/:budgetId/accounts/:accountId/transactions`) %
+          next(`get /plans/:budgetId/accounts/:accountId/transactions`) %
             resultArray.length
         ],
       );
     },
   ),
   http.get(
-    `${baseURL}/budgets/:budgetId/categories/:categoryId/transactions`,
+    `${baseURL}/plans/:budgetId/categories/:categoryId/transactions`,
     async () => {
       const resultArray = [
         [getGetTransactionsByCategory200Response(), {status: 200}],
@@ -429,14 +421,14 @@ export const handlers = [
 
       return HttpResponse.json(
         ...resultArray[
-          next(`get /budgets/:budgetId/categories/:categoryId/transactions`) %
+          next(`get /plans/:budgetId/categories/:categoryId/transactions`) %
             resultArray.length
         ],
       );
     },
   ),
   http.get(
-    `${baseURL}/budgets/:budgetId/payees/:payeeId/transactions`,
+    `${baseURL}/plans/:budgetId/payees/:payeeId/transactions`,
     async () => {
       const resultArray = [
         [getGetTransactionsByPayee200Response(), {status: 200}],
@@ -444,14 +436,14 @@ export const handlers = [
 
       return HttpResponse.json(
         ...resultArray[
-          next(`get /budgets/:budgetId/payees/:payeeId/transactions`) %
+          next(`get /plans/:budgetId/payees/:payeeId/transactions`) %
             resultArray.length
         ],
       );
     },
   ),
   http.get(
-    `${baseURL}/budgets/:budgetId/months/:month/transactions`,
+    `${baseURL}/plans/:budgetId/months/:month/transactions`,
     async () => {
       const resultArray = [
         [getGetTransactionsByMonth200Response(), {status: 200}],
@@ -459,38 +451,37 @@ export const handlers = [
 
       return HttpResponse.json(
         ...resultArray[
-          next(`get /budgets/:budgetId/months/:month/transactions`) %
+          next(`get /plans/:budgetId/months/:month/transactions`) %
             resultArray.length
         ],
       );
     },
   ),
-  http.get(`${baseURL}/budgets/:budgetId/scheduled_transactions`, async () => {
+  http.get(`${baseURL}/plans/:budgetId/scheduled_transactions`, async () => {
     const resultArray = [
       [getGetScheduledTransactions200Response(), {status: 200}],
     ] as [any, {status: number}][];
 
     return HttpResponse.json(
       ...resultArray[
-        next(`get /budgets/:budgetId/scheduled_transactions`) %
-          resultArray.length
+        next(`get /plans/:budgetId/scheduled_transactions`) % resultArray.length
       ],
     );
   }),
-  http.post(`${baseURL}/budgets/:budgetId/scheduled_transactions`, async () => {
+  http.post(`${baseURL}/plans/:budgetId/scheduled_transactions`, async () => {
     const resultArray = [
       [getCreateScheduledTransaction201Response(), {status: 201}],
     ] as [any, {status: number}][];
 
     return HttpResponse.json(
       ...resultArray[
-        next(`post /budgets/:budgetId/scheduled_transactions`) %
+        next(`post /plans/:budgetId/scheduled_transactions`) %
           resultArray.length
       ],
     );
   }),
   http.get(
-    `${baseURL}/budgets/:budgetId/scheduled_transactions/:scheduledTransactionId`,
+    `${baseURL}/plans/:budgetId/scheduled_transactions/:scheduledTransactionId`,
     async () => {
       const resultArray = [
         [getGetScheduledTransactionById200Response(), {status: 200}],
@@ -499,14 +490,14 @@ export const handlers = [
       return HttpResponse.json(
         ...resultArray[
           next(
-            `get /budgets/:budgetId/scheduled_transactions/:scheduledTransactionId`,
+            `get /plans/:budgetId/scheduled_transactions/:scheduledTransactionId`,
           ) % resultArray.length
         ],
       );
     },
   ),
   http.put(
-    `${baseURL}/budgets/:budgetId/scheduled_transactions/:scheduledTransactionId`,
+    `${baseURL}/plans/:budgetId/scheduled_transactions/:scheduledTransactionId`,
     async () => {
       const resultArray = [
         [getUpdateScheduledTransaction200Response(), {status: 200}],
@@ -515,14 +506,14 @@ export const handlers = [
       return HttpResponse.json(
         ...resultArray[
           next(
-            `put /budgets/:budgetId/scheduled_transactions/:scheduledTransactionId`,
+            `put /plans/:budgetId/scheduled_transactions/:scheduledTransactionId`,
           ) % resultArray.length
         ],
       );
     },
   ),
   http.delete(
-    `${baseURL}/budgets/:budgetId/scheduled_transactions/:scheduledTransactionId`,
+    `${baseURL}/plans/:budgetId/scheduled_transactions/:scheduledTransactionId`,
     async () => {
       const resultArray = [
         [getDeleteScheduledTransaction200Response(), {status: 200}],
@@ -531,7 +522,7 @@ export const handlers = [
       return HttpResponse.json(
         ...resultArray[
           next(
-            `delete /budgets/:budgetId/scheduled_transactions/:scheduledTransactionId`,
+            `delete /plans/:budgetId/scheduled_transactions/:scheduledTransactionId`,
           ) % resultArray.length
         ],
       );
@@ -552,7 +543,7 @@ export function getGetUser200Response() {
 export function getGetBudgets200Response() {
   return {
     data: {
-      budgets: [
+      plans: [
         ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
       ].map((_) => ({
         id: faker.string.uuid(),
@@ -689,7 +680,7 @@ export function getGetBudgets200Response() {
 export function getGetBudgetById200Response() {
   return {
     data: {
-      budget: {
+      plan: {
         id: faker.string.uuid(),
         name: faker.person.fullName(),
         last_modified_on: faker.date.past(),

@@ -239,24 +239,24 @@ describe('YNAB API Mocking', () => {
     const api = new ynab.API('fake-access-token');
 
     // This call will be intercepted by MSW and return faker-generated data
-    const response = await api.budgets.getBudgets();
+    const response = await api.plans.getPlans();
 
     // Verify we got a response with the expected structure
     expect(response).toBeDefined();
     expect(response.data).toBeDefined();
-    expect(response.data.budgets).toBeDefined();
-    expect(Array.isArray(response.data.budgets)).toBe(true);
+    expect(response.data.plans).toBeDefined();
+    expect(Array.isArray(response.data.plans)).toBe(true);
   });
 
   it('should return mocked budget details', async () => {
     const api = new ynab.API('fake-access-token');
 
     // Use a fake budget ID - MSW will intercept and return mocked data
-    const response = await api.budgets.getBudgetById('fake-budget-id');
+    const response = await api.plans.getPlanById('fake-budget-id');
 
     expect(response).toBeDefined();
     expect(response.data).toBeDefined();
-    expect(response.data.budget).toBeDefined();
+    expect(response.data.plan).toBeDefined();
   });
 
   it('should return mocked accounts', async () => {
@@ -347,10 +347,10 @@ describe('Selector Resolution', () => {
   }) => {
     server.use(
       // Full budget endpoint (used by LocalBudget system)
-      http.get(`${YNAB_BASE_URL}/budgets/:budgetId`, () => {
+      http.get(`${YNAB_BASE_URL}/plans/:budgetId`, () => {
         return HttpResponse.json({
           data: {
-            budget: {
+            plan: {
               accounts: (options.accounts ?? []).map((a) => ({
                 closed: a.closed ?? false,
                 deleted: a.deleted ?? false,
@@ -589,7 +589,7 @@ describe('API Error Handling', () => {
 
   it('throws on 401 Unauthorized', async () => {
     server.use(
-      http.get(`${YNAB_BASE_URL}/budgets`, () => {
+      http.get(`${YNAB_BASE_URL}/plans`, () => {
         return HttpResponse.json(
           {
             error: {
@@ -608,7 +608,7 @@ describe('API Error Handling', () => {
 
   it('throws on 404 Not Found', async () => {
     server.use(
-      http.get(`${YNAB_BASE_URL}/budgets/:budgetId`, () => {
+      http.get(`${YNAB_BASE_URL}/plans/:budgetId`, () => {
         return HttpResponse.json(
           {error: {detail: 'Budget not found', id: '404', name: 'not_found'}},
           {status: 404},
@@ -621,7 +621,7 @@ describe('API Error Handling', () => {
 
   it('throws on 429 Rate Limited', async () => {
     server.use(
-      http.get(`${YNAB_BASE_URL}/budgets`, () => {
+      http.get(`${YNAB_BASE_URL}/plans`, () => {
         return HttpResponse.json(
           {
             error: {
@@ -640,7 +640,7 @@ describe('API Error Handling', () => {
 
   it('throws on 500 Server Error', async () => {
     server.use(
-      http.get(`${YNAB_BASE_URL}/budgets`, () => {
+      http.get(`${YNAB_BASE_URL}/plans`, () => {
         return HttpResponse.json(
           {
             error: {
@@ -679,14 +679,14 @@ describe('Cache Behavior', () => {
   };
 
   // Helper to set up counting handlers for the full budget endpoint
-  // The new LocalBudget system uses a single call to GET /budgets/{id}
+  // The new LocalBudget system uses a single call to GET /plans/{id}
   const setupCountingMock = () => {
     server.use(
-      http.get(`${YNAB_BASE_URL}/budgets/:budgetId`, () => {
+      http.get(`${YNAB_BASE_URL}/plans/:budgetId`, () => {
         apiCallCount++;
         return HttpResponse.json({
           data: {
-            budget: {
+            plan: {
               accounts: [
                 {closed: false, deleted: false, id: 'acc-1', name: 'Account 1'},
               ],
@@ -789,10 +789,10 @@ describe('Read Methods and Transaction Enrichment', () => {
   // Helper to set up mock budget data
   const setupMockBudget = (overrides: Record<string, unknown> = {}) => {
     server.use(
-      http.get(`${YNAB_BASE_URL}/budgets/:budgetId`, () => {
+      http.get(`${YNAB_BASE_URL}/plans/:budgetId`, () => {
         return HttpResponse.json({
           data: {
-            budget: {
+            plan: {
               accounts: [
                 {
                   balance: 100000,

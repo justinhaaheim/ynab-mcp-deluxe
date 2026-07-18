@@ -23,7 +23,7 @@ import type {
 
 import {FastMCP, type SerializableValue} from 'fastmcp';
 import {
-  AccountType,
+  SaveAccountType,
   TransactionClearedStatus,
   TransactionFlagColor,
 } from 'ynab';
@@ -1659,8 +1659,15 @@ Fund emergency fund with $1000:
 // Tool 15: create_account
 // ============================================================================
 
-// Derive account types from YNAB SDK to stay in sync with API
-const accountTypeValues = Object.values(AccountType) as [string, ...string[]];
+// Derive account types from YNAB SDK to stay in sync with API. Uses
+// SaveAccountType (the creatable subset) rather than AccountType: as of the
+// YNAB API v4 SDK, only checking/savings/cash/creditCard/otherAsset/
+// otherLiability can be created — debt/loan types are managed by YNAB, not
+// created via the API.
+const accountTypeValues = Object.values(SaveAccountType) as [
+  string,
+  ...string[],
+];
 const AccountTypeSchema = z.enum(accountTypeValues);
 
 addTool({
@@ -1717,11 +1724,11 @@ Create a savings account with $0:
         name: args.name,
         type: args.type,
       });
-      // Cast is safe - Zod already validated args.type is a valid AccountType
+      // Cast is safe - Zod already validated args.type is a valid SaveAccountType
       const account = await ynabClient.createAccount(
         budgetId,
         args.name,
-        args.type as AccountType,
+        args.type as SaveAccountType,
         args.balance,
       );
       log.info('Account created', {

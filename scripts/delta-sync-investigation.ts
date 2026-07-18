@@ -78,11 +78,9 @@ function saveJson(filePath: string, data: unknown): void {
 }
 
 /** Summarize which arrays in a BudgetDetail have entries and how many */
-function summarizeDeltaArrays(
-  budget: ynab.BudgetDetail,
-): Record<string, number> {
+function summarizeDeltaArrays(budget: ynab.PlanDetail): Record<string, number> {
   const summary: Record<string, number> = {};
-  const arrays: (keyof ynab.BudgetDetail)[] = [
+  const arrays: (keyof ynab.PlanDetail)[] = [
     'accounts',
     'payees',
     'payee_locations',
@@ -134,24 +132,24 @@ function currentMonth(): string {
 
 /** Fetch full budget (no delta) */
 async function fetchFull(): Promise<{
-  budget: ynab.BudgetDetail;
+  budget: ynab.PlanDetail;
   serverKnowledge: number;
 }> {
-  const response = await api.budgets.getBudgetById(BUDGET_ID);
+  const response = await api.plans.getPlanById(BUDGET_ID);
   return {
-    budget: response.data.budget,
+    budget: response.data.plan,
     serverKnowledge: response.data.server_knowledge,
   };
 }
 
 /** Fetch delta budget */
 async function fetchDelta(lastKnowledge: number): Promise<{
-  budget: ynab.BudgetDetail;
+  budget: ynab.PlanDetail;
   serverKnowledge: number;
 }> {
-  const response = await api.budgets.getBudgetById(BUDGET_ID, lastKnowledge);
+  const response = await api.plans.getPlanById(BUDGET_ID, lastKnowledge);
   return {
-    budget: response.data.budget,
+    budget: response.data.plan,
     serverKnowledge: response.data.server_knowledge,
   };
 }
@@ -168,12 +166,12 @@ async function fetchDelta(lastKnowledge: number): Promise<{
 async function runTest(
   name: string,
   mutation: string,
-  baselineBudget: ynab.BudgetDetail,
+  baselineBudget: ynab.PlanDetail,
   baselineKnowledge: number,
   mutate: () => Promise<string[]>, // Returns observation notes
   cleanup: () => Promise<void>,
 ): Promise<{
-  newBaseline: {budget: ynab.BudgetDetail; serverKnowledge: number};
+  newBaseline: {budget: ynab.PlanDetail; serverKnowledge: number};
   result: TestResult;
 }> {
   const testDir = path.join(OUTPUT_DIR, name);

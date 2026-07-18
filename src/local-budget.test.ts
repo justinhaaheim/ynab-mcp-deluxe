@@ -4,12 +4,12 @@
 
 import type {LocalBudget} from './types.js';
 import type {
-  Account,
-  BudgetDetail,
-  Category,
+  AccountBase,
+  CategoryBase,
   CategoryGroup,
-  MonthDetail,
+  MonthDetailBase,
   Payee,
+  PlanDetail as BudgetDetail,
 } from 'ynab';
 
 import {beforeEach, describe, expect, it} from 'vitest';
@@ -27,7 +27,7 @@ import {
 // Test Helpers
 // ============================================================================
 
-function createMockAccount(overrides: Partial<Account> = {}): Account {
+function createMockAccount(overrides: Partial<AccountBase> = {}): AccountBase {
   return {
     balance: 100000,
     cleared_balance: 100000,
@@ -43,7 +43,9 @@ function createMockAccount(overrides: Partial<Account> = {}): Account {
   };
 }
 
-function createMockCategory(overrides: Partial<Category> = {}): Category {
+function createMockCategory(
+  overrides: Partial<CategoryBase> = {},
+): CategoryBase {
   return {
     activity: -50000,
     balance: 50000,
@@ -65,6 +67,7 @@ function createMockCategory(overrides: Partial<Category> = {}): Category {
     goal_under_funded: null,
     hidden: false,
     id: 'category-1',
+    internal: false,
     name: 'Rent',
     note: null,
     original_category_group_id: null,
@@ -89,12 +92,15 @@ function createMockCategoryGroup(
     deleted: false,
     hidden: false,
     id: 'group-1',
+    internal: false,
     name: 'Bills',
     ...overrides,
   };
 }
 
-function createMockMonth(overrides: Partial<MonthDetail> = {}): MonthDetail {
+function createMockMonth(
+  overrides: Partial<MonthDetailBase> = {},
+): MonthDetailBase {
   return {
     activity: -100000,
     age_of_money: 30,
@@ -103,7 +109,8 @@ function createMockMonth(overrides: Partial<MonthDetail> = {}): MonthDetail {
     deleted: false,
     income: 600000,
     month: '2026-01-01',
-    note: null,
+    // MonthDetailBase types note as string | undefined (not nullable).
+    note: undefined,
     to_be_budgeted: 100000,
     ...overrides,
   };
@@ -299,7 +306,7 @@ describe('mergeMonthArray', () => {
   });
 
   it('should handle empty existing array', () => {
-    const existing: MonthDetail[] = [];
+    const existing: MonthDetailBase[] = [];
     const delta = [createMockMonth({month: '2026-01-01'})];
 
     const result = mergeMonthArray(existing, delta);
@@ -312,7 +319,7 @@ describe('mergeMonthArray', () => {
       createMockMonth({month: '2026-01-01'}),
       createMockMonth({month: '2026-02-01'}),
     ];
-    const delta: MonthDetail[] = [];
+    const delta: MonthDetailBase[] = [];
 
     const result = mergeMonthArray(existing, delta);
 
@@ -327,7 +334,7 @@ describe('mergeMonthArray', () => {
     // Cast to add deleted flag even though MonthDetail doesn't have it
     const delta = [
       {...createMockMonth({month: '2026-01-01'}), deleted: true},
-    ] as MonthDetail[];
+    ] as MonthDetailBase[];
 
     const result = mergeMonthArray(existing, delta);
 

@@ -84,7 +84,7 @@
     "fastmcp": "4.7.0",
     "pino": "10.3.1",
     "pino-roll": "4.0.0",
-    "ynab": "2.10.0",
+    "ynab": "4.5.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -116,6 +116,6 @@
     ]
   },
   "patchedDependencies": {
-    "ynab@2.10.0": "patches/ynab@2.10.0.patch"
+    "ynab@4.5.0": "patches/ynab@4.5.0.patch"
   }
 }

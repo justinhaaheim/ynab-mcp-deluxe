@@ -1,0 +1,42 @@
+diff --git a/dist/esm/models/MonthDetail.js b/dist/esm/models/MonthDetail.js
+index c40fd9be4c6204dca225be37786321056b37b3dd..22039c41f697b9bf3f2ccbcfa21667b35d2ff4a6 100644
+--- a/dist/esm/models/MonthDetail.js
++++ b/dist/esm/models/MonthDetail.js
+@@ -51,7 +51,7 @@ export function MonthDetailFromJSONTyped(json, ignoreDiscriminator) {
+         'activity_currency': json['activity_currency'] == null ? undefined : json['activity_currency'],
+         'to_be_budgeted_formatted': json['to_be_budgeted_formatted'] == null ? undefined : json['to_be_budgeted_formatted'],
+         'to_be_budgeted_currency': json['to_be_budgeted_currency'] == null ? undefined : json['to_be_budgeted_currency'],
+-        'categories': (json['categories'].map(CategoryFromJSON)),
++        'categories': (json['categories'] == null ? [] : json['categories'].map(CategoryFromJSON)),
+     };
+ }
+ export function MonthDetailToJSON(json) {
+@@ -79,6 +79,6 @@ export function MonthDetailToJSONTyped(value, ignoreDiscriminator) {
+         'activity_currency': value['activity_currency'],
+         'to_be_budgeted_formatted': value['to_be_budgeted_formatted'],
+         'to_be_budgeted_currency': value['to_be_budgeted_currency'],
+-        'categories': (value['categories'].map(CategoryToJSON)),
++        'categories': (value['categories'] == null ? [] : value['categories'].map(CategoryToJSON)),
+     };
+ }
+diff --git a/dist/models/MonthDetail.js b/dist/models/MonthDetail.js
+index d3c86b43c6974ebd5ad56c5721f6f2083e9c55ce..a88f5cbb30ed1d03c8880be15b93c774fd5531ec 100644
+--- a/dist/models/MonthDetail.js
++++ b/dist/models/MonthDetail.js
+@@ -58,7 +58,7 @@ function MonthDetailFromJSONTyped(json, ignoreDiscriminator) {
+         'activity_currency': json['activity_currency'] == null ? undefined : json['activity_currency'],
+         'to_be_budgeted_formatted': json['to_be_budgeted_formatted'] == null ? undefined : json['to_be_budgeted_formatted'],
+         'to_be_budgeted_currency': json['to_be_budgeted_currency'] == null ? undefined : json['to_be_budgeted_currency'],
+-        'categories': (json['categories'].map(Category_1.CategoryFromJSON)),
++        'categories': (json['categories'] == null ? [] : json['categories'].map(Category_1.CategoryFromJSON)),
+     };
+ }
+ function MonthDetailToJSON(json) {
+@@ -85,6 +85,6 @@ function MonthDetailToJSONTyped(value, ignoreDiscriminator = false) {
+         'activity_currency': value['activity_currency'],
+         'to_be_budgeted_formatted': value['to_be_budgeted_formatted'],
+         'to_be_budgeted_currency': value['to_be_budgeted_currency'],
+-        'categories': (value['categories'].map(Category_1.CategoryToJSON)),
++        'categories': (value['categories'] == null ? [] : value['categories'].map(Category_1.CategoryToJSON)),
+     };
+ }
