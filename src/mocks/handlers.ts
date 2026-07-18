@@ -12,6 +12,7 @@ faker.seed(1);
 
 const baseURL = 'https://api.ynab.com/v1';
 const MAX_ARRAY_LENGTH = 20;
+const MAX_STRING_LENGTH = 42;
 
 // Map to store counters for each API endpoint
 const apiCounters = new Map<string, number>();
@@ -25,507 +26,1183 @@ const next = (apiKey: string) => {
   return currentCount;
 };
 
-// Helper to generate a single transaction detail
-const generateTransactionDetail = () => ({
-  id: faker.string.uuid(),
-  date: faker.date.past().toISOString().substring(0, 10),
-  amount: faker.number.int(),
-  memo: faker.lorem.words(),
-  cleared: faker.helpers.arrayElement(['cleared', 'uncleared', 'reconciled']),
-  approved: faker.datatype.boolean(),
-  flag_color: faker.helpers.arrayElement([
-    'red',
-    'orange',
-    'yellow',
-    'green',
-    'blue',
-    'purple',
-    '',
-    null,
-  ]),
-  flag_name: faker.person.fullName(),
-  account_id: faker.string.uuid(),
-  payee_id: faker.string.uuid(),
-  category_id: faker.string.uuid(),
-  transfer_account_id: null,
-  transfer_transaction_id: null,
-  matched_transaction_id: null,
-  import_id: null,
-  import_payee_name: null,
-  import_payee_name_original: null,
-  debt_transaction_type: null,
-  deleted: false,
-  account_name: faker.company.name(),
-  payee_name: faker.person.fullName(),
-  category_name: faker.commerce.department(),
-  subtransactions: [],
-});
-
 export const handlers = [
-  http.get(`${baseURL}/user`, async () => {
-    const resultArray = [[getGetUser200Response(), {status: 200}]] as [
-      any,
-      {status: number},
-    ][];
-
-    return HttpResponse.json(
-      ...resultArray[next(`get /user`) % resultArray.length],
-    );
-  }),
-  http.get(`${baseURL}/plans`, async () => {
-    const resultArray = [[getGetBudgets200Response(), {status: 200}]] as [
-      any,
-      {status: number},
-    ][];
-
-    return HttpResponse.json(
-      ...resultArray[next(`get /plans`) % resultArray.length],
-    );
-  }),
-  http.get(`${baseURL}/plans/:budgetId`, async () => {
-    const resultArray = [[getGetBudgetById200Response(), {status: 200}]] as [
-      any,
-      {status: number},
-    ][];
-
-    return HttpResponse.json(
-      ...resultArray[next(`get /plans/:budgetId`) % resultArray.length],
-    );
-  }),
-  http.get(`${baseURL}/plans/:budgetId/settings`, async () => {
-    const resultArray = [
-      [getGetBudgetSettingsById200Response(), {status: 200}],
-    ] as [any, {status: number}][];
-
-    return HttpResponse.json(
-      ...resultArray[
-        next(`get /plans/:budgetId/settings`) % resultArray.length
-      ],
-    );
-  }),
-  http.get(`${baseURL}/plans/:budgetId/accounts`, async () => {
-    const resultArray = [[getGetAccounts200Response(), {status: 200}]] as [
-      any,
-      {status: number},
-    ][];
-
-    return HttpResponse.json(
-      ...resultArray[
-        next(`get /plans/:budgetId/accounts`) % resultArray.length
-      ],
-    );
-  }),
-  http.post(`${baseURL}/plans/:budgetId/accounts`, async ({request}) => {
-    // Read the request body to return matching account properties
-    const body = (await request.json()) as {
-      account?: {name: string; type: string; balance: number};
-    };
-    const baseResponse = getCreateAccount201Response();
-
-    // If request contains account, return matching properties
-    if (body.account) {
-      baseResponse.data.account.name = body.account.name;
-      baseResponse.data.account.type = body.account.type;
-      baseResponse.data.account.balance = body.account.balance;
+  http.get(`${baseURL}/plans`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
     }
 
-    return HttpResponse.json(baseResponse, {status: 201});
-  }),
-  http.get(`${baseURL}/plans/:budgetId/accounts/:accountId`, async () => {
-    const resultArray = [[getGetAccountById200Response(), {status: 200}]] as [
+    const resultArray = [[await getGetPlans200Response(), {status: 200}]] as [
       any,
       {status: number},
     ][];
 
-    return HttpResponse.json(
-      ...resultArray[
-        next(`get /plans/:budgetId/accounts/:accountId`) % resultArray.length
-      ],
-    );
+    const [body, init] = resultArray[next(`get /plans`) % resultArray.length];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
   }),
-  http.get(`${baseURL}/plans/:budgetId/categories`, async () => {
-    const resultArray = [[getGetCategories200Response(), {status: 200}]] as [
+  http.get(`${baseURL}/user`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [[await getGetUser200Response(), {status: 200}]] as [
       any,
       {status: number},
     ][];
 
-    return HttpResponse.json(
-      ...resultArray[
-        next(`get /plans/:budgetId/categories`) % resultArray.length
-      ],
-    );
+    const [body, init] = resultArray[next(`get /user`) % resultArray.length];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
   }),
-  http.get(`${baseURL}/plans/:budgetId/categories/:categoryId`, async () => {
-    const resultArray = [[getGetCategoryById200Response(), {status: 200}]] as [
-      any,
-      {status: number},
-    ][];
+  http.post(
+    `${baseURL}/plans/:planId/transactions/import`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('post')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
 
-    return HttpResponse.json(
-      ...resultArray[
-        next(`get /plans/:budgetId/categories/:categoryId`) % resultArray.length
-      ],
-    );
-  }),
-  http.patch(`${baseURL}/plans/:budgetId/categories/:categoryId`, async () => {
-    const resultArray = [[getUpdateCategory200Response(), {status: 200}]] as [
-      any,
-      {status: number},
-    ][];
-
-    return HttpResponse.json(
-      ...resultArray[
-        next(`patch /plans/:budgetId/categories/:categoryId`) %
-          resultArray.length
-      ],
-    );
-  }),
-  http.get(
-    `${baseURL}/plans/:budgetId/months/:month/categories/:categoryId`,
-    async () => {
       const resultArray = [
-        [getGetMonthCategoryById200Response(), {status: 200}],
+        [await getImportTransactions200Response(), {status: 200}],
+        [await getImportTransactions201Response(), {status: 201}],
       ] as [any, {status: number}][];
 
-      return HttpResponse.json(
-        ...resultArray[
-          next(`get /plans/:budgetId/months/:month/categories/:categoryId`) %
+      const [body, init] =
+        resultArray[
+          next(`post /plans/:planId/transactions/import`) % resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(`${baseURL}/plans/:planId/accounts`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getGetAccounts200Response(), {status: 200}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[next(`get /plans/:planId/accounts`) % resultArray.length];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.get(`${baseURL}/plans/:planId/categories`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getGetCategories200Response(), {status: 200}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[next(`get /plans/:planId/categories`) % resultArray.length];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.get(
+    `${baseURL}/plans/:planId/money_movement_groups`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetMoneyMovementGroups200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/money_movement_groups`) % resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(`${baseURL}/plans/:planId/money_movements`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getGetMoneyMovements200Response(), {status: 200}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[
+        next(`get /plans/:planId/money_movements`) % resultArray.length
+      ];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.get(`${baseURL}/plans/:planId/months`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getGetPlanMonths200Response(), {status: 200}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[next(`get /plans/:planId/months`) % resultArray.length];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.get(`${baseURL}/plans/:planId/payee_locations`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getGetPayeeLocations200Response(), {status: 200}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[
+        next(`get /plans/:planId/payee_locations`) % resultArray.length
+      ];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.get(`${baseURL}/plans/:planId/payees`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [[await getGetPayees200Response(), {status: 200}]] as [
+      any,
+      {status: number},
+    ][];
+
+    const [body, init] =
+      resultArray[next(`get /plans/:planId/payees`) % resultArray.length];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.get(
+    `${baseURL}/plans/:planId/scheduled_transactions`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetScheduledTransactions200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/scheduled_transactions`) % resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(`${baseURL}/plans/:planId/settings`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getGetPlanSettingsById200Response(), {status: 200}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[next(`get /plans/:planId/settings`) % resultArray.length];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.get(`${baseURL}/plans/:planId/transactions`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getGetTransactions200Response(), {status: 200}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[next(`get /plans/:planId/transactions`) % resultArray.length];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.patch(`${baseURL}/plans/:planId/transactions`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('patch')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getUpdateTransactions200Response(), {status: 200}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[
+        next(`patch /plans/:planId/transactions`) % resultArray.length
+      ];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.post(`${baseURL}/plans/:planId/accounts`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('post')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getCreateAccount201Response(), {status: 201}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[next(`post /plans/:planId/accounts`) % resultArray.length];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.post(`${baseURL}/plans/:planId/categories`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('post')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getCreateCategory201Response(), {status: 201}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[next(`post /plans/:planId/categories`) % resultArray.length];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.post(`${baseURL}/plans/:planId/category_groups`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('post')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getCreateCategoryGroup201Response(), {status: 201}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[
+        next(`post /plans/:planId/category_groups`) % resultArray.length
+      ];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.post(`${baseURL}/plans/:planId/payees`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('post')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getCreatePayee201Response(), {status: 201}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[next(`post /plans/:planId/payees`) % resultArray.length];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.post(
+    `${baseURL}/plans/:planId/scheduled_transactions`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('post')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getCreateScheduledTransaction201Response(), {status: 201}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`post /plans/:planId/scheduled_transactions`) %
             resultArray.length
-        ],
-      );
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.post(`${baseURL}/plans/:planId/transactions`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('post')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getCreateTransaction201Response(), {status: 201}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[
+        next(`post /plans/:planId/transactions`) % resultArray.length
+      ];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.get(`${baseURL}/plans/:planId`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getGetPlanById200Response(), {status: 200}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[next(`get /plans/:planId`) % resultArray.length];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.get(
+    `${baseURL}/plans/:planId/accounts/:accountId/transactions`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetTransactionsByAccount200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/accounts/:accountId/transactions`) %
+            resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(
+    `${baseURL}/plans/:planId/categories/:categoryId/transactions`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetTransactionsByCategory200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/categories/:categoryId/transactions`) %
+            resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(
+    `${baseURL}/plans/:planId/months/:month/money_movement_groups`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetMoneyMovementGroupsByMonth200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/months/:month/money_movement_groups`) %
+            resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(
+    `${baseURL}/plans/:planId/months/:month/money_movements`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetMoneyMovementsByMonth200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/months/:month/money_movements`) %
+            resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(
+    `${baseURL}/plans/:planId/months/:month/transactions`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetTransactionsByMonth200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/months/:month/transactions`) %
+            resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(
+    `${baseURL}/plans/:planId/payees/:payeeId/payee_locations`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetPayeeLocationsByPayee200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/payees/:payeeId/payee_locations`) %
+            resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(
+    `${baseURL}/plans/:planId/payees/:payeeId/transactions`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetTransactionsByPayee200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/payees/:payeeId/transactions`) %
+            resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.delete(
+    `${baseURL}/plans/:planId/scheduled_transactions/:scheduledTransactionId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (
+        shouldEchoRequestBody &&
+        ['post', 'put', 'patch'].includes('delete')
+      ) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getDeleteScheduledTransaction200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(
+            `delete /plans/:planId/scheduled_transactions/:scheduledTransactionId`,
+          ) % resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.delete(
+    `${baseURL}/plans/:planId/transactions/:transactionId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (
+        shouldEchoRequestBody &&
+        ['post', 'put', 'patch'].includes('delete')
+      ) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getDeleteTransaction200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`delete /plans/:planId/transactions/:transactionId`) %
+            resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(
+    `${baseURL}/plans/:planId/accounts/:accountId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetAccountById200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/accounts/:accountId`) % resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(
+    `${baseURL}/plans/:planId/categories/:categoryId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetCategoryById200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/categories/:categoryId`) % resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(`${baseURL}/plans/:planId/months/:month`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getGetPlanMonth200Response(), {status: 200}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[
+        next(`get /plans/:planId/months/:month`) % resultArray.length
+      ];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.get(
+    `${baseURL}/plans/:planId/payee_locations/:payeeLocationId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetPayeeLocationById200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/payee_locations/:payeeLocationId`) %
+            resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(`${baseURL}/plans/:planId/payees/:payeeId`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
+    }
+
+    const resultArray = [
+      [await getGetPayeeById200Response(), {status: 200}],
+    ] as [any, {status: number}][];
+
+    const [body, init] =
+      resultArray[
+        next(`get /plans/:planId/payees/:payeeId`) % resultArray.length
+      ];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
+  }),
+  http.get(
+    `${baseURL}/plans/:planId/scheduled_transactions/:scheduledTransactionId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetScheduledTransactionById200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(
+            `get /plans/:planId/scheduled_transactions/:scheduledTransactionId`,
+          ) % resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
+    },
+  ),
+  http.get(
+    `${baseURL}/plans/:planId/transactions/:transactionId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
+      const resultArray = [
+        [await getGetTransactionById200Response(), {status: 200}],
+      ] as [any, {status: number}][];
+
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/transactions/:transactionId`) %
+            resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
     },
   ),
   http.patch(
-    `${baseURL}/plans/:budgetId/months/:month/categories/:categoryId`,
-    async ({params}) => {
-      const baseResponse = getUpdateMonthCategory200Response();
-      // Return the category with the ID from the URL
-      baseResponse.data.category.id = params.categoryId as string;
-      return HttpResponse.json(baseResponse, {status: 200});
-    },
-  ),
-  http.get(`${baseURL}/plans/:budgetId/payees`, async () => {
-    const resultArray = [[getGetPayees200Response(), {status: 200}]] as [
-      any,
-      {status: number},
-    ][];
+    `${baseURL}/plans/:planId/categories/:categoryId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('patch')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
 
-    return HttpResponse.json(
-      ...resultArray[next(`get /plans/:budgetId/payees`) % resultArray.length],
-    );
-  }),
-  http.get(`${baseURL}/plans/:budgetId/payees/:payeeId`, async () => {
-    const resultArray = [[getGetPayeeById200Response(), {status: 200}]] as [
-      any,
-      {status: number},
-    ][];
-
-    return HttpResponse.json(
-      ...resultArray[
-        next(`get /plans/:budgetId/payees/:payeeId`) % resultArray.length
-      ],
-    );
-  }),
-  http.patch(`${baseURL}/plans/:budgetId/payees/:payeeId`, async () => {
-    const resultArray = [[getUpdatePayee200Response(), {status: 200}]] as [
-      any,
-      {status: number},
-    ][];
-
-    return HttpResponse.json(
-      ...resultArray[
-        next(`patch /plans/:budgetId/payees/:payeeId`) % resultArray.length
-      ],
-    );
-  }),
-  http.get(`${baseURL}/plans/:budgetId/payee_locations`, async () => {
-    const resultArray = [
-      [getGetPayeeLocations200Response(), {status: 200}],
-    ] as [any, {status: number}][];
-
-    return HttpResponse.json(
-      ...resultArray[
-        next(`get /plans/:budgetId/payee_locations`) % resultArray.length
-      ],
-    );
-  }),
-  http.get(
-    `${baseURL}/plans/:budgetId/payee_locations/:payeeLocationId`,
-    async () => {
       const resultArray = [
-        [getGetPayeeLocationById200Response(), {status: 200}],
+        [await getUpdateCategory200Response(), {status: 200}],
       ] as [any, {status: number}][];
 
-      return HttpResponse.json(
-        ...resultArray[
-          next(`get /plans/:budgetId/payee_locations/:payeeLocationId`) %
+      const [body, init] =
+        resultArray[
+          next(`patch /plans/:planId/categories/:categoryId`) %
             resultArray.length
-        ],
-      );
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
     },
   ),
-  http.get(
-    `${baseURL}/plans/:budgetId/payees/:payeeId/payee_locations`,
-    async () => {
+  http.patch(
+    `${baseURL}/plans/:planId/category_groups/:categoryGroupId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('patch')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
       const resultArray = [
-        [getGetPayeeLocationsByPayee200Response(), {status: 200}],
+        [await getUpdateCategoryGroup200Response(), {status: 200}],
       ] as [any, {status: number}][];
 
-      return HttpResponse.json(
-        ...resultArray[
-          next(`get /plans/:budgetId/payees/:payeeId/payee_locations`) %
+      const [body, init] =
+        resultArray[
+          next(`patch /plans/:planId/category_groups/:categoryGroupId`) %
             resultArray.length
-        ],
-      );
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
     },
   ),
-  http.get(`${baseURL}/plans/:budgetId/months`, async () => {
-    const resultArray = [[getGetBudgetMonths200Response(), {status: 200}]] as [
-      any,
-      {status: number},
-    ][];
-
-    return HttpResponse.json(
-      ...resultArray[next(`get /plans/:budgetId/months`) % resultArray.length],
-    );
-  }),
-  http.get(`${baseURL}/plans/:budgetId/months/:month`, async () => {
-    const resultArray = [[getGetBudgetMonth200Response(), {status: 200}]] as [
-      any,
-      {status: number},
-    ][];
-
-    return HttpResponse.json(
-      ...resultArray[
-        next(`get /plans/:budgetId/months/:month`) % resultArray.length
-      ],
-    );
-  }),
-  http.get(`${baseURL}/plans/:budgetId/transactions`, async () => {
-    const resultArray = [[getGetTransactions200Response(), {status: 200}]] as [
-      any,
-      {status: number},
-    ][];
-
-    return HttpResponse.json(
-      ...resultArray[
-        next(`get /plans/:budgetId/transactions`) % resultArray.length
-      ],
-    );
-  }),
-  http.post(`${baseURL}/plans/:budgetId/transactions`, async ({request}) => {
-    // Read the request body to return matching transaction count
-    const body = (await request.json()) as {transactions?: unknown[]};
-    const baseResponse = getCreateTransaction201Response();
-
-    // If request contains transactions, create response with matching count
-    if (body.transactions && body.transactions.length > 0) {
-      baseResponse.data.transactions = body.transactions.map(() =>
-        generateTransactionDetail(),
-      );
-      // Clear duplicate_import_ids since we're creating all new transactions
-      baseResponse.data.duplicate_import_ids = [];
+  http.patch(`${baseURL}/plans/:planId/payees/:payeeId`, async ({request}) => {
+    const shouldEchoRequestBody = false;
+    let requestJson = null;
+    if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('patch')) {
+      try {
+        requestJson = await request.clone().json();
+      } catch (e) {
+        requestJson = null;
+      }
     }
 
-    return HttpResponse.json(baseResponse, {status: 201});
-  }),
-  http.patch(`${baseURL}/plans/:budgetId/transactions`, async ({request}) => {
-    // Read the request body to return matching transaction IDs
-    const body = (await request.json()) as {transactions?: {id: string}[]};
-    const baseResponse = getUpdateTransactions200Response();
-
-    // If request contains transactions, create response with matching IDs
-    if (body.transactions && body.transactions.length > 0) {
-      baseResponse.data.transactions = body.transactions.map(
-        (tx: {id: string}) => ({
-          ...generateTransactionDetail(),
-          id: tx.id,
-        }),
-      );
-    }
-
-    return HttpResponse.json(baseResponse, {status: 200});
-  }),
-  http.post(`${baseURL}/plans/:budgetId/transactions/import`, async () => {
     const resultArray = [
-      [getImportTransactions200Response(), {status: 200}],
-      [getImportTransactions201Response(), {status: 201}],
+      [await getUpdatePayee200Response(), {status: 200}],
     ] as [any, {status: number}][];
 
-    return HttpResponse.json(
-      ...resultArray[
-        next(`post /plans/:budgetId/transactions/import`) % resultArray.length
-      ],
-    );
+    const [body, init] =
+      resultArray[
+        next(`patch /plans/:planId/payees/:payeeId`) % resultArray.length
+      ];
+    const responseJson =
+      requestJson && body && typeof body === 'object' && !Array.isArray(body)
+        ? {...body, ...requestJson}
+        : body;
+    return HttpResponse.json(responseJson, init);
   }),
-  http.get(
-    `${baseURL}/plans/:budgetId/transactions/:transactionId`,
-    async () => {
+  http.put(
+    `${baseURL}/plans/:planId/scheduled_transactions/:scheduledTransactionId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('put')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
       const resultArray = [
-        [getGetTransactionById200Response(), {status: 200}],
+        [await getUpdateScheduledTransaction200Response(), {status: 200}],
       ] as [any, {status: number}][];
 
-      return HttpResponse.json(
-        ...resultArray[
-          next(`get /plans/:budgetId/transactions/:transactionId`) %
-            resultArray.length
-        ],
-      );
+      const [body, init] =
+        resultArray[
+          next(
+            `put /plans/:planId/scheduled_transactions/:scheduledTransactionId`,
+          ) % resultArray.length
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
     },
   ),
   http.put(
-    `${baseURL}/plans/:budgetId/transactions/:transactionId`,
-    async () => {
+    `${baseURL}/plans/:planId/transactions/:transactionId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('put')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
       const resultArray = [
-        [getUpdateTransaction200Response(), {status: 200}],
+        [await getUpdateTransaction200Response(), {status: 200}],
       ] as [any, {status: number}][];
 
-      return HttpResponse.json(
-        ...resultArray[
-          next(`put /plans/:budgetId/transactions/:transactionId`) %
+      const [body, init] =
+        resultArray[
+          next(`put /plans/:planId/transactions/:transactionId`) %
             resultArray.length
-        ],
-      );
-    },
-  ),
-  http.delete(
-    `${baseURL}/plans/:budgetId/transactions/:transactionId`,
-    async ({params}) => {
-      const baseResponse = getDeleteTransaction200Response();
-      // Return the deleted transaction with the ID from the URL
-      baseResponse.data.transaction.id = params.transactionId as string;
-      return HttpResponse.json(baseResponse, {status: 200});
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
     },
   ),
   http.get(
-    `${baseURL}/plans/:budgetId/accounts/:accountId/transactions`,
-    async () => {
+    `${baseURL}/plans/:planId/months/:month/categories/:categoryId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('get')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
       const resultArray = [
-        [getGetTransactionsByAccount200Response(), {status: 200}],
+        [await getGetMonthCategoryById200Response(), {status: 200}],
       ] as [any, {status: number}][];
 
-      return HttpResponse.json(
-        ...resultArray[
-          next(`get /plans/:budgetId/accounts/:accountId/transactions`) %
+      const [body, init] =
+        resultArray[
+          next(`get /plans/:planId/months/:month/categories/:categoryId`) %
             resultArray.length
-        ],
-      );
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
     },
   ),
-  http.get(
-    `${baseURL}/plans/:budgetId/categories/:categoryId/transactions`,
-    async () => {
+  http.patch(
+    `${baseURL}/plans/:planId/months/:month/categories/:categoryId`,
+    async ({request}) => {
+      const shouldEchoRequestBody = false;
+      let requestJson = null;
+      if (shouldEchoRequestBody && ['post', 'put', 'patch'].includes('patch')) {
+        try {
+          requestJson = await request.clone().json();
+        } catch (e) {
+          requestJson = null;
+        }
+      }
+
       const resultArray = [
-        [getGetTransactionsByCategory200Response(), {status: 200}],
+        [await getUpdateMonthCategory200Response(), {status: 200}],
       ] as [any, {status: number}][];
 
-      return HttpResponse.json(
-        ...resultArray[
-          next(`get /plans/:budgetId/categories/:categoryId/transactions`) %
+      const [body, init] =
+        resultArray[
+          next(`patch /plans/:planId/months/:month/categories/:categoryId`) %
             resultArray.length
-        ],
-      );
-    },
-  ),
-  http.get(
-    `${baseURL}/plans/:budgetId/payees/:payeeId/transactions`,
-    async () => {
-      const resultArray = [
-        [getGetTransactionsByPayee200Response(), {status: 200}],
-      ] as [any, {status: number}][];
-
-      return HttpResponse.json(
-        ...resultArray[
-          next(`get /plans/:budgetId/payees/:payeeId/transactions`) %
-            resultArray.length
-        ],
-      );
-    },
-  ),
-  http.get(
-    `${baseURL}/plans/:budgetId/months/:month/transactions`,
-    async () => {
-      const resultArray = [
-        [getGetTransactionsByMonth200Response(), {status: 200}],
-      ] as [any, {status: number}][];
-
-      return HttpResponse.json(
-        ...resultArray[
-          next(`get /plans/:budgetId/months/:month/transactions`) %
-            resultArray.length
-        ],
-      );
-    },
-  ),
-  http.get(`${baseURL}/plans/:budgetId/scheduled_transactions`, async () => {
-    const resultArray = [
-      [getGetScheduledTransactions200Response(), {status: 200}],
-    ] as [any, {status: number}][];
-
-    return HttpResponse.json(
-      ...resultArray[
-        next(`get /plans/:budgetId/scheduled_transactions`) % resultArray.length
-      ],
-    );
-  }),
-  http.post(`${baseURL}/plans/:budgetId/scheduled_transactions`, async () => {
-    const resultArray = [
-      [getCreateScheduledTransaction201Response(), {status: 201}],
-    ] as [any, {status: number}][];
-
-    return HttpResponse.json(
-      ...resultArray[
-        next(`post /plans/:budgetId/scheduled_transactions`) %
-          resultArray.length
-      ],
-    );
-  }),
-  http.get(
-    `${baseURL}/plans/:budgetId/scheduled_transactions/:scheduledTransactionId`,
-    async () => {
-      const resultArray = [
-        [getGetScheduledTransactionById200Response(), {status: 200}],
-      ] as [any, {status: number}][];
-
-      return HttpResponse.json(
-        ...resultArray[
-          next(
-            `get /plans/:budgetId/scheduled_transactions/:scheduledTransactionId`,
-          ) % resultArray.length
-        ],
-      );
-    },
-  ),
-  http.put(
-    `${baseURL}/plans/:budgetId/scheduled_transactions/:scheduledTransactionId`,
-    async () => {
-      const resultArray = [
-        [getUpdateScheduledTransaction200Response(), {status: 200}],
-      ] as [any, {status: number}][];
-
-      return HttpResponse.json(
-        ...resultArray[
-          next(
-            `put /plans/:budgetId/scheduled_transactions/:scheduledTransactionId`,
-          ) % resultArray.length
-        ],
-      );
-    },
-  ),
-  http.delete(
-    `${baseURL}/plans/:budgetId/scheduled_transactions/:scheduledTransactionId`,
-    async () => {
-      const resultArray = [
-        [getDeleteScheduledTransaction200Response(), {status: 200}],
-      ] as [any, {status: number}][];
-
-      return HttpResponse.json(
-        ...resultArray[
-          next(
-            `delete /plans/:budgetId/scheduled_transactions/:scheduledTransactionId`,
-          ) % resultArray.length
-        ],
-      );
+        ];
+      const responseJson =
+        requestJson && body && typeof body === 'object' && !Array.isArray(body)
+          ? {...body, ...requestJson}
+          : body;
+      return HttpResponse.json(responseJson, init);
     },
   ),
 ];
@@ -540,294 +1217,376 @@ export function getGetUser200Response() {
   };
 }
 
-export function getGetBudgets200Response() {
+export function getGetPlans200Response() {
   return {
     data: {
-      plans: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        id: faker.string.uuid(),
-        name: faker.person.fullName(),
-        last_modified_on: faker.date.past(),
-        first_month: faker.date.past().toISOString().substring(0, 10),
-        last_month: faker.date.past().toISOString().substring(0, 10),
-        date_format: {
-          format: faker.lorem.words(),
-        },
-        currency_format: {
-          iso_code: faker.lorem.words(),
-          example_format: faker.lorem.words(),
-          decimal_digits: faker.number.int({max: 4, min: 0}),
-          decimal_separator: faker.lorem.words(),
-          symbol_first: faker.datatype.boolean(),
-          group_separator: faker.lorem.words(),
-          currency_symbol: faker.lorem.words(),
-          display_symbol: faker.datatype.boolean(),
-        },
-        accounts: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
+      plans: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
         ].map((_) => ({
           id: faker.string.uuid(),
           name: faker.person.fullName(),
-          type: faker.helpers.arrayElement([
-            'checking',
-            'savings',
-            'cash',
-            'creditCard',
-            'lineOfCredit',
-            'otherAsset',
-            'otherLiability',
-            'mortgage',
-            'autoLoan',
-            'studentLoan',
-            'personalLoan',
-            'medicalDebt',
-            'otherDebt',
+          last_modified_on: faker.date.anytime().toISOString(),
+          first_month: faker.date.past().toISOString().substring(0, 10),
+          last_month: faker.date.past().toISOString().substring(0, 10),
+          date_format: faker.helpers.arrayElement([
+            {
+              format: faker.lorem.words(),
+            },
+            null,
           ]),
-          on_budget: faker.datatype.boolean(),
-          closed: faker.datatype.boolean(),
-          note: faker.lorem.words(),
-          balance: faker.number.int(),
-          cleared_balance: faker.number.int(),
-          uncleared_balance: faker.number.int(),
-          transfer_payee_id: faker.string.uuid(),
-          direct_import_linked: faker.datatype.boolean(),
-          direct_import_in_error: faker.datatype.boolean(),
-          last_reconciled_at: faker.date.past(),
-          debt_original_balance: faker.number.int(),
-          debt_interest_rates: [...new Array(5).keys()]
-            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-            .reduce((acc, next) => Object.assign(acc, next), {}),
-          debt_minimum_payments: [...new Array(5).keys()]
-            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-            .reduce((acc, next) => Object.assign(acc, next), {}),
-          debt_escrow_amounts: [...new Array(5).keys()]
-            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-            .reduce((acc, next) => Object.assign(acc, next), {}),
-          deleted: faker.datatype.boolean(),
-        })),
-      })),
-      default_budget: {
+          currency_format: faker.helpers.arrayElement([
+            {
+              iso_code: faker.lorem.words(),
+              example_format: faker.lorem.words(),
+              decimal_digits: faker.number.int({max: 4, min: 0}),
+              decimal_separator: faker.lorem.words(),
+              symbol_first: faker.datatype.boolean(),
+              group_separator: faker.lorem.words(),
+              currency_symbol: faker.lorem.words(),
+              display_symbol: faker.datatype.boolean(),
+            },
+            null,
+          ]),
+          accounts: (() => {
+            const arrayMin = 1;
+            const arrayMax = MAX_ARRAY_LENGTH;
+            const safeMin = Math.min(arrayMin, arrayMax);
+            return [
+              ...new Array(
+                faker.number.int({min: safeMin, max: arrayMax}),
+              ).keys(),
+            ].map((_) => ({
+              id: faker.string.uuid(),
+              name: faker.person.fullName(),
+              type: faker.helpers.arrayElement([
+                'checking',
+                'savings',
+                'cash',
+                'creditCard',
+                'lineOfCredit',
+                'otherAsset',
+                'otherLiability',
+                'mortgage',
+                'autoLoan',
+                'studentLoan',
+                'personalLoan',
+                'medicalDebt',
+                'otherDebt',
+              ]),
+              on_budget: faker.datatype.boolean(),
+              closed: faker.datatype.boolean(),
+              note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+              balance: faker.number.int(),
+              cleared_balance: faker.number.int(),
+              uncleared_balance: faker.number.int(),
+              transfer_payee_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              direct_import_linked: faker.datatype.boolean(),
+              direct_import_in_error: faker.datatype.boolean(),
+              last_reconciled_at: faker.helpers.arrayElement([
+                faker.date.anytime().toISOString(),
+                null,
+              ]),
+              debt_original_balance: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+              debt_interest_rates: faker.helpers.arrayElement([
+                [...new Array(5).keys()]
+                  .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+                  .reduce((acc, next) => Object.assign(acc, next), {}),
+                null,
+              ]),
+              debt_minimum_payments: faker.helpers.arrayElement([
+                [...new Array(5).keys()]
+                  .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+                  .reduce((acc, next) => Object.assign(acc, next), {}),
+                null,
+              ]),
+              debt_escrow_amounts: faker.helpers.arrayElement([
+                [...new Array(5).keys()]
+                  .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+                  .reduce((acc, next) => Object.assign(acc, next), {}),
+                null,
+              ]),
+              deleted: faker.datatype.boolean(),
+              balance_formatted: faker.lorem.words(),
+              balance_currency: faker.number.int(),
+              cleared_balance_formatted: faker.lorem.words(),
+              cleared_balance_currency: faker.number.int(),
+              uncleared_balance_formatted: faker.lorem.words(),
+              uncleared_balance_currency: faker.number.int(),
+            }));
+          })(),
+        }));
+      })(),
+      default_plan: {
         id: faker.string.uuid(),
         name: faker.person.fullName(),
-        last_modified_on: faker.date.past(),
+        last_modified_on: faker.date.anytime().toISOString(),
         first_month: faker.date.past().toISOString().substring(0, 10),
         last_month: faker.date.past().toISOString().substring(0, 10),
-        date_format: {
-          format: faker.lorem.words(),
-        },
-        currency_format: {
-          iso_code: faker.lorem.words(),
-          example_format: faker.lorem.words(),
-          decimal_digits: faker.number.int({max: 4, min: 0}),
-          decimal_separator: faker.lorem.words(),
-          symbol_first: faker.datatype.boolean(),
-          group_separator: faker.lorem.words(),
-          currency_symbol: faker.lorem.words(),
-          display_symbol: faker.datatype.boolean(),
-        },
-        accounts: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          name: faker.person.fullName(),
-          type: faker.helpers.arrayElement([
-            'checking',
-            'savings',
-            'cash',
-            'creditCard',
-            'lineOfCredit',
-            'otherAsset',
-            'otherLiability',
-            'mortgage',
-            'autoLoan',
-            'studentLoan',
-            'personalLoan',
-            'medicalDebt',
-            'otherDebt',
-          ]),
-          on_budget: faker.datatype.boolean(),
-          closed: faker.datatype.boolean(),
-          note: faker.lorem.words(),
-          balance: faker.number.int(),
-          cleared_balance: faker.number.int(),
-          uncleared_balance: faker.number.int(),
-          transfer_payee_id: faker.string.uuid(),
-          direct_import_linked: faker.datatype.boolean(),
-          direct_import_in_error: faker.datatype.boolean(),
-          last_reconciled_at: faker.date.past(),
-          debt_original_balance: faker.number.int(),
-          debt_interest_rates: [...new Array(5).keys()]
-            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-            .reduce((acc, next) => Object.assign(acc, next), {}),
-          debt_minimum_payments: [...new Array(5).keys()]
-            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-            .reduce((acc, next) => Object.assign(acc, next), {}),
-          debt_escrow_amounts: [...new Array(5).keys()]
-            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-            .reduce((acc, next) => Object.assign(acc, next), {}),
-          deleted: faker.datatype.boolean(),
-        })),
+        date_format: faker.helpers.arrayElement([
+          {
+            format: faker.lorem.words(),
+          },
+          null,
+        ]),
+        currency_format: faker.helpers.arrayElement([
+          {
+            iso_code: faker.lorem.words(),
+            example_format: faker.lorem.words(),
+            decimal_digits: faker.number.int({max: 4, min: 0}),
+            decimal_separator: faker.lorem.words(),
+            symbol_first: faker.datatype.boolean(),
+            group_separator: faker.lorem.words(),
+            currency_symbol: faker.lorem.words(),
+            display_symbol: faker.datatype.boolean(),
+          },
+          null,
+        ]),
+        accounts: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            name: faker.person.fullName(),
+            type: faker.helpers.arrayElement([
+              'checking',
+              'savings',
+              'cash',
+              'creditCard',
+              'lineOfCredit',
+              'otherAsset',
+              'otherLiability',
+              'mortgage',
+              'autoLoan',
+              'studentLoan',
+              'personalLoan',
+              'medicalDebt',
+              'otherDebt',
+            ]),
+            on_budget: faker.datatype.boolean(),
+            closed: faker.datatype.boolean(),
+            note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            balance: faker.number.int(),
+            cleared_balance: faker.number.int(),
+            uncleared_balance: faker.number.int(),
+            transfer_payee_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            direct_import_linked: faker.datatype.boolean(),
+            direct_import_in_error: faker.datatype.boolean(),
+            last_reconciled_at: faker.helpers.arrayElement([
+              faker.date.anytime().toISOString(),
+              null,
+            ]),
+            debt_original_balance: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            debt_interest_rates: faker.helpers.arrayElement([
+              [...new Array(5).keys()]
+                .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+                .reduce((acc, next) => Object.assign(acc, next), {}),
+              null,
+            ]),
+            debt_minimum_payments: faker.helpers.arrayElement([
+              [...new Array(5).keys()]
+                .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+                .reduce((acc, next) => Object.assign(acc, next), {}),
+              null,
+            ]),
+            debt_escrow_amounts: faker.helpers.arrayElement([
+              [...new Array(5).keys()]
+                .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+                .reduce((acc, next) => Object.assign(acc, next), {}),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            balance_formatted: faker.lorem.words(),
+            balance_currency: faker.number.int(),
+            cleared_balance_formatted: faker.lorem.words(),
+            cleared_balance_currency: faker.number.int(),
+            uncleared_balance_formatted: faker.lorem.words(),
+            uncleared_balance_currency: faker.number.int(),
+          }));
+        })(),
       },
     },
   };
 }
 
-export function getGetBudgetById200Response() {
+export function getGetPlanById200Response() {
   return {
     data: {
       plan: {
         id: faker.string.uuid(),
         name: faker.person.fullName(),
-        last_modified_on: faker.date.past(),
+        last_modified_on: faker.date.anytime().toISOString(),
         first_month: faker.date.past().toISOString().substring(0, 10),
         last_month: faker.date.past().toISOString().substring(0, 10),
-        date_format: {
-          format: faker.lorem.words(),
-        },
-        currency_format: {
-          iso_code: faker.lorem.words(),
-          example_format: faker.lorem.words(),
-          decimal_digits: faker.number.int({max: 4, min: 0}),
-          decimal_separator: faker.lorem.words(),
-          symbol_first: faker.datatype.boolean(),
-          group_separator: faker.lorem.words(),
-          currency_symbol: faker.lorem.words(),
-          display_symbol: faker.datatype.boolean(),
-        },
-        accounts: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          name: faker.person.fullName(),
-          type: faker.helpers.arrayElement([
-            'checking',
-            'savings',
-            'cash',
-            'creditCard',
-            'lineOfCredit',
-            'otherAsset',
-            'otherLiability',
-            'mortgage',
-            'autoLoan',
-            'studentLoan',
-            'personalLoan',
-            'medicalDebt',
-            'otherDebt',
-          ]),
-          on_budget: faker.datatype.boolean(),
-          closed: faker.datatype.boolean(),
-          note: faker.lorem.words(),
-          balance: faker.number.int(),
-          cleared_balance: faker.number.int(),
-          uncleared_balance: faker.number.int(),
-          transfer_payee_id: faker.string.uuid(),
-          direct_import_linked: faker.datatype.boolean(),
-          direct_import_in_error: faker.datatype.boolean(),
-          last_reconciled_at: faker.date.past(),
-          debt_original_balance: faker.number.int(),
-          debt_interest_rates: [...new Array(5).keys()]
-            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-            .reduce((acc, next) => Object.assign(acc, next), {}),
-          debt_minimum_payments: [...new Array(5).keys()]
-            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-            .reduce((acc, next) => Object.assign(acc, next), {}),
-          debt_escrow_amounts: [...new Array(5).keys()]
-            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-            .reduce((acc, next) => Object.assign(acc, next), {}),
-          deleted: faker.datatype.boolean(),
-        })),
-        payees: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          deleted: faker.datatype.boolean(),
-        })),
-        payee_locations: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          payee_id: faker.string.uuid(),
-          latitude: faker.lorem.words(),
-          longitude: faker.lorem.words(),
-          deleted: faker.datatype.boolean(),
-        })),
-        category_groups: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          name: faker.person.fullName(),
-          hidden: faker.datatype.boolean(),
-          deleted: faker.datatype.boolean(),
-        })),
-        categories: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          category_group_id: faker.string.uuid(),
-          category_group_name: faker.person.fullName(),
-          name: faker.person.fullName(),
-          hidden: faker.datatype.boolean(),
-          original_category_group_id: faker.string.uuid(),
-          note: faker.lorem.words(),
-          budgeted: faker.number.int(),
-          activity: faker.number.int(),
-          balance: faker.number.int(),
-          goal_type: faker.helpers.arrayElement([
-            'TB',
-            'TBD',
-            'MF',
-            'NEED',
-            'DEBT',
-            null,
-          ]),
-          goal_needs_whole_amount: faker.datatype.boolean(),
-          goal_day: faker.number.int(),
-          goal_cadence: faker.number.int(),
-          goal_cadence_frequency: faker.number.int(),
-          goal_creation_month: faker.date.past().toISOString().substring(0, 10),
-          goal_target: faker.number.int(),
-          goal_target_month: faker.date.past().toISOString().substring(0, 10),
-          goal_percentage_complete: faker.number.int(),
-          goal_months_to_budget: faker.number.int(),
-          goal_under_funded: faker.number.int(),
-          goal_overall_funded: faker.number.int(),
-          goal_overall_left: faker.number.int(),
-          goal_snoozed_at: faker.date.past(),
-          deleted: faker.datatype.boolean(),
-        })),
-        months: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          month: faker.date.past().toISOString().substring(0, 10),
-          note: faker.lorem.words(),
-          income: faker.number.int(),
-          budgeted: faker.number.int(),
-          activity: faker.number.int(),
-          to_be_budgeted: faker.number.int(),
-          age_of_money: faker.number.int(),
-          deleted: faker.datatype.boolean(),
-          categories: [
+        date_format: faker.helpers.arrayElement([
+          {
+            format: faker.lorem.words(),
+          },
+          null,
+        ]),
+        currency_format: faker.helpers.arrayElement([
+          {
+            iso_code: faker.lorem.words(),
+            example_format: faker.lorem.words(),
+            decimal_digits: faker.number.int({max: 4, min: 0}),
+            decimal_separator: faker.lorem.words(),
+            symbol_first: faker.datatype.boolean(),
+            group_separator: faker.lorem.words(),
+            currency_symbol: faker.lorem.words(),
+            display_symbol: faker.datatype.boolean(),
+          },
+          null,
+        ]),
+        accounts: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
             ...new Array(
-              faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            name: faker.person.fullName(),
+            type: faker.helpers.arrayElement([
+              'checking',
+              'savings',
+              'cash',
+              'creditCard',
+              'lineOfCredit',
+              'otherAsset',
+              'otherLiability',
+              'mortgage',
+              'autoLoan',
+              'studentLoan',
+              'personalLoan',
+              'medicalDebt',
+              'otherDebt',
+            ]),
+            on_budget: faker.datatype.boolean(),
+            closed: faker.datatype.boolean(),
+            note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            balance: faker.number.int(),
+            cleared_balance: faker.number.int(),
+            uncleared_balance: faker.number.int(),
+            transfer_payee_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            direct_import_linked: faker.datatype.boolean(),
+            direct_import_in_error: faker.datatype.boolean(),
+            last_reconciled_at: faker.helpers.arrayElement([
+              faker.date.anytime().toISOString(),
+              null,
+            ]),
+            debt_original_balance: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            debt_interest_rates: faker.helpers.arrayElement([
+              [...new Array(5).keys()]
+                .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+                .reduce((acc, next) => Object.assign(acc, next), {}),
+              null,
+            ]),
+            debt_minimum_payments: faker.helpers.arrayElement([
+              [...new Array(5).keys()]
+                .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+                .reduce((acc, next) => Object.assign(acc, next), {}),
+              null,
+            ]),
+            debt_escrow_amounts: faker.helpers.arrayElement([
+              [...new Array(5).keys()]
+                .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+                .reduce((acc, next) => Object.assign(acc, next), {}),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            balance_formatted: faker.lorem.words(),
+            balance_currency: faker.number.int(),
+            cleared_balance_formatted: faker.lorem.words(),
+            cleared_balance_currency: faker.number.int(),
+            uncleared_balance_formatted: faker.lorem.words(),
+            uncleared_balance_currency: faker.number.int(),
+          }));
+        })(),
+        payees: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            name: faker.person.fullName(),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+          }));
+        })(),
+        payee_locations: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            payee_id: faker.string.uuid(),
+            latitude: faker.lorem.words(),
+            longitude: faker.lorem.words(),
+            deleted: faker.datatype.boolean(),
+          }));
+        })(),
+        category_groups: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            name: faker.person.fullName(),
+            hidden: faker.datatype.boolean(),
+            internal: faker.datatype.boolean(),
+            deleted: faker.datatype.boolean(),
+          }));
+        })(),
+        categories: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
             ).keys(),
           ].map((_) => ({
             id: faker.string.uuid(),
@@ -835,184 +1594,462 @@ export function getGetBudgetById200Response() {
             category_group_name: faker.person.fullName(),
             name: faker.person.fullName(),
             hidden: faker.datatype.boolean(),
-            original_category_group_id: faker.string.uuid(),
-            note: faker.lorem.words(),
+            internal: faker.datatype.boolean(),
+            original_category_group_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            note: faker.helpers.arrayElement([faker.lorem.words(), null]),
             budgeted: faker.number.int(),
             activity: faker.number.int(),
             balance: faker.number.int(),
             goal_type: faker.helpers.arrayElement([
-              'TB',
-              'TBD',
-              'MF',
-              'NEED',
-              'DEBT',
+              faker.helpers.arrayElement([
+                'TB',
+                'TBD',
+                'MF',
+                'NEED',
+                'DEBT',
+                null,
+              ]),
+              faker.helpers.arrayElement([
+                'TB',
+                'TBD',
+                'MF',
+                'NEED',
+                'DEBT',
+                null,
+              ]),
+            ]),
+            goal_needs_whole_amount: faker.helpers.arrayElement([
+              faker.datatype.boolean(),
               null,
             ]),
-            goal_needs_whole_amount: faker.datatype.boolean(),
-            goal_day: faker.number.int(),
-            goal_cadence: faker.number.int(),
-            goal_cadence_frequency: faker.number.int(),
-            goal_creation_month: faker.date
-              .past()
-              .toISOString()
-              .substring(0, 10),
-            goal_target: faker.number.int(),
-            goal_target_month: faker.date.past().toISOString().substring(0, 10),
-            goal_percentage_complete: faker.number.int(),
-            goal_months_to_budget: faker.number.int(),
-            goal_under_funded: faker.number.int(),
-            goal_overall_funded: faker.number.int(),
-            goal_overall_left: faker.number.int(),
-            goal_snoozed_at: faker.date.past(),
+            goal_day: faker.helpers.arrayElement([faker.number.int(), null]),
+            goal_cadence: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_cadence_frequency: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_creation_month: faker.helpers.arrayElement([
+              faker.date.past().toISOString().substring(0, 10),
+              null,
+            ]),
+            goal_target: faker.helpers.arrayElement([faker.number.int(), null]),
+            goal_target_month: faker.helpers.arrayElement([
+              faker.date.past().toISOString().substring(0, 10),
+              null,
+            ]),
+            goal_target_date: faker.helpers.arrayElement([
+              faker.date.past().toISOString().substring(0, 10),
+              null,
+            ]),
+            goal_percentage_complete: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_months_to_budget: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_under_funded: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_overall_funded: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_overall_left: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_snoozed_at: faker.helpers.arrayElement([
+              faker.date.anytime().toISOString(),
+              null,
+            ]),
             deleted: faker.datatype.boolean(),
-          })),
-        })),
-        transactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          date: faker.date.past().toISOString().substring(0, 10),
-          amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          cleared: faker.helpers.arrayElement([
-            'cleared',
-            'uncleared',
-            'reconciled',
-          ]),
-          approved: faker.datatype.boolean(),
-          flag_color: faker.helpers.arrayElement([
-            'red',
-            'orange',
-            'yellow',
-            'green',
-            'blue',
-            'purple',
-            '',
-            null,
-          ]),
-          flag_name: faker.person.fullName(),
-          account_id: faker.string.uuid(),
-          payee_id: faker.string.uuid(),
-          category_id: faker.string.uuid(),
-          transfer_account_id: faker.string.uuid(),
-          transfer_transaction_id: faker.string.uuid(),
-          matched_transaction_id: faker.string.uuid(),
-          import_id: faker.string.uuid(),
-          import_payee_name: faker.person.fullName(),
-          import_payee_name_original: faker.lorem.words(),
-          debt_transaction_type: faker.helpers.arrayElement([
-            'payment',
-            'refund',
-            'fee',
-            'interest',
-            'escrow',
-            'balanceAdjustment',
-            'credit',
-            'charge',
-            null,
-          ]),
-          deleted: faker.datatype.boolean(),
-        })),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          transaction_id: faker.string.uuid(),
-          amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          transfer_transaction_id: faker.string.uuid(),
-          deleted: faker.datatype.boolean(),
-        })),
-        scheduled_transactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          date_first: faker.date.past().toISOString().substring(0, 10),
-          date_next: faker.date.past().toISOString().substring(0, 10),
-          frequency: faker.helpers.arrayElement([
-            'never',
-            'daily',
-            'weekly',
-            'everyOtherWeek',
-            'twiceAMonth',
-            'every4Weeks',
-            'monthly',
-            'everyOtherMonth',
-            'every3Months',
-            'every4Months',
-            'twiceAYear',
-            'yearly',
-            'everyOtherYear',
-          ]),
-          amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          flag_color: faker.helpers.arrayElement([
-            'red',
-            'orange',
-            'yellow',
-            'green',
-            'blue',
-            'purple',
-            '',
-            null,
-          ]),
-          flag_name: faker.person.fullName(),
-          account_id: faker.string.uuid(),
-          payee_id: faker.string.uuid(),
-          category_id: faker.string.uuid(),
-          transfer_account_id: faker.string.uuid(),
-          deleted: faker.datatype.boolean(),
-        })),
-        scheduled_subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          scheduled_transaction_id: faker.string.uuid(),
-          amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          deleted: faker.datatype.boolean(),
-        })),
+          }));
+        })(),
+        months: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            month: faker.date.past().toISOString().substring(0, 10),
+            note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            income: faker.number.int(),
+            budgeted: faker.number.int(),
+            activity: faker.number.int(),
+            to_be_budgeted: faker.number.int(),
+            age_of_money: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            categories: (() => {
+              const arrayMin = 1;
+              const arrayMax = MAX_ARRAY_LENGTH;
+              const safeMin = Math.min(arrayMin, arrayMax);
+              return [
+                ...new Array(
+                  faker.number.int({min: safeMin, max: arrayMax}),
+                ).keys(),
+              ].map((_) => ({
+                id: faker.string.uuid(),
+                category_group_id: faker.string.uuid(),
+                category_group_name: faker.person.fullName(),
+                name: faker.person.fullName(),
+                hidden: faker.datatype.boolean(),
+                internal: faker.datatype.boolean(),
+                original_category_group_id: faker.helpers.arrayElement([
+                  faker.string.uuid(),
+                  null,
+                ]),
+                note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+                budgeted: faker.number.int(),
+                activity: faker.number.int(),
+                balance: faker.number.int(),
+                goal_type: faker.helpers.arrayElement([
+                  faker.helpers.arrayElement([
+                    'TB',
+                    'TBD',
+                    'MF',
+                    'NEED',
+                    'DEBT',
+                    null,
+                  ]),
+                  faker.helpers.arrayElement([
+                    'TB',
+                    'TBD',
+                    'MF',
+                    'NEED',
+                    'DEBT',
+                    null,
+                  ]),
+                ]),
+                goal_needs_whole_amount: faker.helpers.arrayElement([
+                  faker.datatype.boolean(),
+                  null,
+                ]),
+                goal_day: faker.helpers.arrayElement([
+                  faker.number.int(),
+                  null,
+                ]),
+                goal_cadence: faker.helpers.arrayElement([
+                  faker.number.int(),
+                  null,
+                ]),
+                goal_cadence_frequency: faker.helpers.arrayElement([
+                  faker.number.int(),
+                  null,
+                ]),
+                goal_creation_month: faker.helpers.arrayElement([
+                  faker.date.past().toISOString().substring(0, 10),
+                  null,
+                ]),
+                goal_target: faker.helpers.arrayElement([
+                  faker.number.int(),
+                  null,
+                ]),
+                goal_target_month: faker.helpers.arrayElement([
+                  faker.date.past().toISOString().substring(0, 10),
+                  null,
+                ]),
+                goal_target_date: faker.helpers.arrayElement([
+                  faker.date.past().toISOString().substring(0, 10),
+                  null,
+                ]),
+                goal_percentage_complete: faker.helpers.arrayElement([
+                  faker.number.int(),
+                  null,
+                ]),
+                goal_months_to_budget: faker.helpers.arrayElement([
+                  faker.number.int(),
+                  null,
+                ]),
+                goal_under_funded: faker.helpers.arrayElement([
+                  faker.number.int(),
+                  null,
+                ]),
+                goal_overall_funded: faker.helpers.arrayElement([
+                  faker.number.int(),
+                  null,
+                ]),
+                goal_overall_left: faker.helpers.arrayElement([
+                  faker.number.int(),
+                  null,
+                ]),
+                goal_snoozed_at: faker.helpers.arrayElement([
+                  faker.date.anytime().toISOString(),
+                  null,
+                ]),
+                deleted: faker.datatype.boolean(),
+              }));
+            })(),
+          }));
+        })(),
+        transactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            date: faker.date.past().toISOString().substring(0, 10),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            cleared: faker.helpers.arrayElement([
+              'cleared',
+              'uncleared',
+              'reconciled',
+            ]),
+            approved: faker.datatype.boolean(),
+            flag_color: faker.helpers.arrayElement([
+              faker.helpers.arrayElement([
+                'red',
+                'orange',
+                'yellow',
+                'green',
+                'blue',
+                'purple',
+                '',
+                null,
+              ]),
+              faker.helpers.arrayElement([
+                'red',
+                'orange',
+                'yellow',
+                'green',
+                'blue',
+                'purple',
+                '',
+                null,
+              ]),
+            ]),
+            flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            account_id: faker.string.uuid(),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            transfer_transaction_id: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            matched_transaction_id: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            import_payee_name: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            import_payee_name_original: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            debt_transaction_type: faker.helpers.arrayElement([
+              faker.helpers.arrayElement([
+                'payment',
+                'refund',
+                'fee',
+                'interest',
+                'escrow',
+                'balanceAdjustment',
+                'credit',
+                'charge',
+                null,
+              ]),
+              faker.helpers.arrayElement([
+                'payment',
+                'refund',
+                'fee',
+                'interest',
+                'escrow',
+                'balanceAdjustment',
+                'credit',
+                'charge',
+                null,
+              ]),
+            ]),
+            deleted: faker.datatype.boolean(),
+          }));
+        })(),
+        subtransactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            transaction_id: faker.string.uuid(),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            category_name: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            transfer_transaction_id: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+          }));
+        })(),
+        scheduled_transactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            date_first: faker.date.past().toISOString().substring(0, 10),
+            date_next: faker.date.past().toISOString().substring(0, 10),
+            frequency: faker.helpers.arrayElement([
+              'never',
+              'daily',
+              'weekly',
+              'everyOtherWeek',
+              'twiceAMonth',
+              'every4Weeks',
+              'monthly',
+              'everyOtherMonth',
+              'every3Months',
+              'every4Months',
+              'twiceAYear',
+              'yearly',
+              'everyOtherYear',
+            ]),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            flag_color: faker.helpers.arrayElement([
+              faker.helpers.arrayElement([
+                'red',
+                'orange',
+                'yellow',
+                'green',
+                'blue',
+                'purple',
+                '',
+                null,
+              ]),
+              faker.helpers.arrayElement([
+                'red',
+                'orange',
+                'yellow',
+                'green',
+                'blue',
+                'purple',
+                '',
+                null,
+              ]),
+            ]),
+            flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            account_id: faker.string.uuid(),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+          }));
+        })(),
+        scheduled_subtransactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            scheduled_transaction_id: faker.string.uuid(),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            category_name: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+          }));
+        })(),
       },
       server_knowledge: faker.number.int(),
     },
   };
 }
 
-export function getGetBudgetSettingsById200Response() {
+export function getGetPlanSettingsById200Response() {
   return {
     data: {
       settings: {
-        date_format: {
-          format: faker.lorem.words(),
-        },
-        currency_format: {
-          iso_code: faker.lorem.words(),
-          example_format: faker.lorem.words(),
-          decimal_digits: faker.number.int({max: 4, min: 0}),
-          decimal_separator: faker.lorem.words(),
-          symbol_first: faker.datatype.boolean(),
-          group_separator: faker.lorem.words(),
-          currency_symbol: faker.lorem.words(),
-          display_symbol: faker.datatype.boolean(),
-        },
+        date_format: faker.helpers.arrayElement([
+          {
+            format: faker.lorem.words(),
+          },
+          null,
+        ]),
+        currency_format: faker.helpers.arrayElement([
+          {
+            iso_code: faker.lorem.words(),
+            example_format: faker.lorem.words(),
+            decimal_digits: faker.number.int({max: 4, min: 0}),
+            decimal_separator: faker.lorem.words(),
+            symbol_first: faker.datatype.boolean(),
+            group_separator: faker.lorem.words(),
+            currency_symbol: faker.lorem.words(),
+            display_symbol: faker.datatype.boolean(),
+          },
+          null,
+        ]),
       },
     },
   };
@@ -1021,48 +2058,77 @@ export function getGetBudgetSettingsById200Response() {
 export function getGetAccounts200Response() {
   return {
     data: {
-      accounts: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        id: faker.string.uuid(),
-        name: faker.person.fullName(),
-        type: faker.helpers.arrayElement([
-          'checking',
-          'savings',
-          'cash',
-          'creditCard',
-          'lineOfCredit',
-          'otherAsset',
-          'otherLiability',
-          'mortgage',
-          'autoLoan',
-          'studentLoan',
-          'personalLoan',
-          'medicalDebt',
-          'otherDebt',
-        ]),
-        on_budget: faker.datatype.boolean(),
-        closed: faker.datatype.boolean(),
-        note: faker.lorem.words(),
-        balance: faker.number.int(),
-        cleared_balance: faker.number.int(),
-        uncleared_balance: faker.number.int(),
-        transfer_payee_id: faker.string.uuid(),
-        direct_import_linked: faker.datatype.boolean(),
-        direct_import_in_error: faker.datatype.boolean(),
-        last_reconciled_at: faker.date.past(),
-        debt_original_balance: faker.number.int(),
-        debt_interest_rates: [...new Array(5).keys()]
-          .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-          .reduce((acc, next) => Object.assign(acc, next), {}),
-        debt_minimum_payments: [...new Array(5).keys()]
-          .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-          .reduce((acc, next) => Object.assign(acc, next), {}),
-        debt_escrow_amounts: [...new Array(5).keys()]
-          .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-          .reduce((acc, next) => Object.assign(acc, next), {}),
-        deleted: faker.datatype.boolean(),
-      })),
+      accounts: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => ({
+          id: faker.string.uuid(),
+          name: faker.person.fullName(),
+          type: faker.helpers.arrayElement([
+            'checking',
+            'savings',
+            'cash',
+            'creditCard',
+            'lineOfCredit',
+            'otherAsset',
+            'otherLiability',
+            'mortgage',
+            'autoLoan',
+            'studentLoan',
+            'personalLoan',
+            'medicalDebt',
+            'otherDebt',
+          ]),
+          on_budget: faker.datatype.boolean(),
+          closed: faker.datatype.boolean(),
+          note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          balance: faker.number.int(),
+          cleared_balance: faker.number.int(),
+          uncleared_balance: faker.number.int(),
+          transfer_payee_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          direct_import_linked: faker.datatype.boolean(),
+          direct_import_in_error: faker.datatype.boolean(),
+          last_reconciled_at: faker.helpers.arrayElement([
+            faker.date.anytime().toISOString(),
+            null,
+          ]),
+          debt_original_balance: faker.helpers.arrayElement([
+            faker.number.int(),
+            null,
+          ]),
+          debt_interest_rates: faker.helpers.arrayElement([
+            [...new Array(5).keys()]
+              .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+              .reduce((acc, next) => Object.assign(acc, next), {}),
+            null,
+          ]),
+          debt_minimum_payments: faker.helpers.arrayElement([
+            [...new Array(5).keys()]
+              .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+              .reduce((acc, next) => Object.assign(acc, next), {}),
+            null,
+          ]),
+          debt_escrow_amounts: faker.helpers.arrayElement([
+            [...new Array(5).keys()]
+              .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+              .reduce((acc, next) => Object.assign(acc, next), {}),
+            null,
+          ]),
+          deleted: faker.datatype.boolean(),
+          balance_formatted: faker.lorem.words(),
+          balance_currency: faker.number.int(),
+          cleared_balance_formatted: faker.lorem.words(),
+          cleared_balance_currency: faker.number.int(),
+          uncleared_balance_formatted: faker.lorem.words(),
+          uncleared_balance_currency: faker.number.int(),
+        }));
+      })(),
       server_knowledge: faker.number.int(),
     },
   };
@@ -1091,25 +2157,49 @@ export function getCreateAccount201Response() {
         ]),
         on_budget: faker.datatype.boolean(),
         closed: faker.datatype.boolean(),
-        note: faker.lorem.words(),
+        note: faker.helpers.arrayElement([faker.lorem.words(), null]),
         balance: faker.number.int(),
         cleared_balance: faker.number.int(),
         uncleared_balance: faker.number.int(),
-        transfer_payee_id: faker.string.uuid(),
+        transfer_payee_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
+          null,
+        ]),
         direct_import_linked: faker.datatype.boolean(),
         direct_import_in_error: faker.datatype.boolean(),
-        last_reconciled_at: faker.date.past(),
-        debt_original_balance: faker.number.int(),
-        debt_interest_rates: [...new Array(5).keys()]
-          .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-          .reduce((acc, next) => Object.assign(acc, next), {}),
-        debt_minimum_payments: [...new Array(5).keys()]
-          .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-          .reduce((acc, next) => Object.assign(acc, next), {}),
-        debt_escrow_amounts: [...new Array(5).keys()]
-          .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-          .reduce((acc, next) => Object.assign(acc, next), {}),
+        last_reconciled_at: faker.helpers.arrayElement([
+          faker.date.anytime().toISOString(),
+          null,
+        ]),
+        debt_original_balance: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        debt_interest_rates: faker.helpers.arrayElement([
+          [...new Array(5).keys()]
+            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+            .reduce((acc, next) => Object.assign(acc, next), {}),
+          null,
+        ]),
+        debt_minimum_payments: faker.helpers.arrayElement([
+          [...new Array(5).keys()]
+            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+            .reduce((acc, next) => Object.assign(acc, next), {}),
+          null,
+        ]),
+        debt_escrow_amounts: faker.helpers.arrayElement([
+          [...new Array(5).keys()]
+            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+            .reduce((acc, next) => Object.assign(acc, next), {}),
+          null,
+        ]),
         deleted: faker.datatype.boolean(),
+        balance_formatted: faker.lorem.words(),
+        balance_currency: faker.number.int(),
+        cleared_balance_formatted: faker.lorem.words(),
+        cleared_balance_currency: faker.number.int(),
+        uncleared_balance_formatted: faker.lorem.words(),
+        uncleared_balance_currency: faker.number.int(),
       },
     },
   };
@@ -1138,25 +2228,49 @@ export function getGetAccountById200Response() {
         ]),
         on_budget: faker.datatype.boolean(),
         closed: faker.datatype.boolean(),
-        note: faker.lorem.words(),
+        note: faker.helpers.arrayElement([faker.lorem.words(), null]),
         balance: faker.number.int(),
         cleared_balance: faker.number.int(),
         uncleared_balance: faker.number.int(),
-        transfer_payee_id: faker.string.uuid(),
+        transfer_payee_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
+          null,
+        ]),
         direct_import_linked: faker.datatype.boolean(),
         direct_import_in_error: faker.datatype.boolean(),
-        last_reconciled_at: faker.date.past(),
-        debt_original_balance: faker.number.int(),
-        debt_interest_rates: [...new Array(5).keys()]
-          .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-          .reduce((acc, next) => Object.assign(acc, next), {}),
-        debt_minimum_payments: [...new Array(5).keys()]
-          .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-          .reduce((acc, next) => Object.assign(acc, next), {}),
-        debt_escrow_amounts: [...new Array(5).keys()]
-          .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
-          .reduce((acc, next) => Object.assign(acc, next), {}),
+        last_reconciled_at: faker.helpers.arrayElement([
+          faker.date.anytime().toISOString(),
+          null,
+        ]),
+        debt_original_balance: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        debt_interest_rates: faker.helpers.arrayElement([
+          [...new Array(5).keys()]
+            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+            .reduce((acc, next) => Object.assign(acc, next), {}),
+          null,
+        ]),
+        debt_minimum_payments: faker.helpers.arrayElement([
+          [...new Array(5).keys()]
+            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+            .reduce((acc, next) => Object.assign(acc, next), {}),
+          null,
+        ]),
+        debt_escrow_amounts: faker.helpers.arrayElement([
+          [...new Array(5).keys()]
+            .map((_) => ({[faker.lorem.word()]: faker.number.int()}))
+            .reduce((acc, next) => Object.assign(acc, next), {}),
+          null,
+        ]),
         deleted: faker.datatype.boolean(),
+        balance_formatted: faker.lorem.words(),
+        balance_currency: faker.number.int(),
+        cleared_balance_formatted: faker.lorem.words(),
+        cleared_balance_currency: faker.number.int(),
+        uncleared_balance_formatted: faker.lorem.words(),
+        uncleared_balance_currency: faker.number.int(),
       },
     },
   };
@@ -1165,52 +2279,269 @@ export function getGetAccountById200Response() {
 export function getGetCategories200Response() {
   return {
     data: {
-      category_groups: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        id: faker.string.uuid(),
-        name: faker.person.fullName(),
-        hidden: faker.datatype.boolean(),
-        deleted: faker.datatype.boolean(),
-        categories: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
+      category_groups: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
         ].map((_) => ({
           id: faker.string.uuid(),
-          category_group_id: faker.string.uuid(),
-          category_group_name: faker.person.fullName(),
           name: faker.person.fullName(),
           hidden: faker.datatype.boolean(),
-          original_category_group_id: faker.string.uuid(),
-          note: faker.lorem.words(),
-          budgeted: faker.number.int(),
-          activity: faker.number.int(),
-          balance: faker.number.int(),
-          goal_type: faker.helpers.arrayElement([
-            'TB',
-            'TBD',
-            'MF',
-            'NEED',
-            'DEBT',
-            null,
-          ]),
-          goal_needs_whole_amount: faker.datatype.boolean(),
-          goal_day: faker.number.int(),
-          goal_cadence: faker.number.int(),
-          goal_cadence_frequency: faker.number.int(),
-          goal_creation_month: faker.date.past().toISOString().substring(0, 10),
-          goal_target: faker.number.int(),
-          goal_target_month: faker.date.past().toISOString().substring(0, 10),
-          goal_percentage_complete: faker.number.int(),
-          goal_months_to_budget: faker.number.int(),
-          goal_under_funded: faker.number.int(),
-          goal_overall_funded: faker.number.int(),
-          goal_overall_left: faker.number.int(),
-          goal_snoozed_at: faker.date.past(),
+          internal: faker.datatype.boolean(),
           deleted: faker.datatype.boolean(),
-        })),
-      })),
+          categories: (() => {
+            const arrayMin = 1;
+            const arrayMax = MAX_ARRAY_LENGTH;
+            const safeMin = Math.min(arrayMin, arrayMax);
+            return [
+              ...new Array(
+                faker.number.int({min: safeMin, max: arrayMax}),
+              ).keys(),
+            ].map((_) => ({
+              id: faker.string.uuid(),
+              category_group_id: faker.string.uuid(),
+              category_group_name: faker.person.fullName(),
+              name: faker.person.fullName(),
+              hidden: faker.datatype.boolean(),
+              internal: faker.datatype.boolean(),
+              original_category_group_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+              budgeted: faker.number.int(),
+              activity: faker.number.int(),
+              balance: faker.number.int(),
+              goal_type: faker.helpers.arrayElement([
+                faker.helpers.arrayElement([
+                  'TB',
+                  'TBD',
+                  'MF',
+                  'NEED',
+                  'DEBT',
+                  null,
+                ]),
+                faker.helpers.arrayElement([
+                  'TB',
+                  'TBD',
+                  'MF',
+                  'NEED',
+                  'DEBT',
+                  null,
+                ]),
+              ]),
+              goal_needs_whole_amount: faker.helpers.arrayElement([
+                faker.datatype.boolean(),
+                null,
+              ]),
+              goal_day: faker.helpers.arrayElement([faker.number.int(), null]),
+              goal_cadence: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+              goal_cadence_frequency: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+              goal_creation_month: faker.helpers.arrayElement([
+                faker.date.past().toISOString().substring(0, 10),
+                null,
+              ]),
+              goal_target: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+              goal_target_month: faker.helpers.arrayElement([
+                faker.date.past().toISOString().substring(0, 10),
+                null,
+              ]),
+              goal_target_date: faker.helpers.arrayElement([
+                faker.date.past().toISOString().substring(0, 10),
+                null,
+              ]),
+              goal_percentage_complete: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+              goal_months_to_budget: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+              goal_under_funded: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+              goal_overall_funded: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+              goal_overall_left: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+              goal_snoozed_at: faker.helpers.arrayElement([
+                faker.date.anytime().toISOString(),
+                null,
+              ]),
+              deleted: faker.datatype.boolean(),
+              balance_formatted: faker.lorem.words(),
+              balance_currency: faker.number.int(),
+              activity_formatted: faker.lorem.words(),
+              activity_currency: faker.number.int(),
+              budgeted_formatted: faker.lorem.words(),
+              budgeted_currency: faker.number.int(),
+              goal_target_formatted: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              goal_target_currency: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+              goal_under_funded_formatted: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              goal_under_funded_currency: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+              goal_overall_funded_formatted: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              goal_overall_funded_currency: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+              goal_overall_left_formatted: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              goal_overall_left_currency: faker.helpers.arrayElement([
+                faker.number.int(),
+                null,
+              ]),
+            }));
+          })(),
+        }));
+      })(),
+      server_knowledge: faker.number.int(),
+    },
+  };
+}
+
+export function getCreateCategory201Response() {
+  return {
+    data: {
+      category: {
+        id: faker.string.uuid(),
+        category_group_id: faker.string.uuid(),
+        category_group_name: faker.person.fullName(),
+        name: faker.person.fullName(),
+        hidden: faker.datatype.boolean(),
+        internal: faker.datatype.boolean(),
+        original_category_group_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
+          null,
+        ]),
+        note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        budgeted: faker.number.int(),
+        activity: faker.number.int(),
+        balance: faker.number.int(),
+        goal_type: faker.helpers.arrayElement([
+          faker.helpers.arrayElement(['TB', 'TBD', 'MF', 'NEED', 'DEBT', null]),
+          faker.helpers.arrayElement(['TB', 'TBD', 'MF', 'NEED', 'DEBT', null]),
+        ]),
+        goal_needs_whole_amount: faker.helpers.arrayElement([
+          faker.datatype.boolean(),
+          null,
+        ]),
+        goal_day: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_cadence: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_cadence_frequency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_creation_month: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_target: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_target_month: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_target_date: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_percentage_complete: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_months_to_budget: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_under_funded: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_funded: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_left: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_snoozed_at: faker.helpers.arrayElement([
+          faker.date.anytime().toISOString(),
+          null,
+        ]),
+        deleted: faker.datatype.boolean(),
+        balance_formatted: faker.lorem.words(),
+        balance_currency: faker.number.int(),
+        activity_formatted: faker.lorem.words(),
+        activity_currency: faker.number.int(),
+        budgeted_formatted: faker.lorem.words(),
+        budgeted_currency: faker.number.int(),
+        goal_target_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_target_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_under_funded_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_under_funded_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_funded_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_overall_funded_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_left_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_overall_left_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+      },
       server_knowledge: faker.number.int(),
     },
   };
@@ -1225,33 +2556,105 @@ export function getGetCategoryById200Response() {
         category_group_name: faker.person.fullName(),
         name: faker.person.fullName(),
         hidden: faker.datatype.boolean(),
-        original_category_group_id: faker.string.uuid(),
-        note: faker.lorem.words(),
+        internal: faker.datatype.boolean(),
+        original_category_group_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
+          null,
+        ]),
+        note: faker.helpers.arrayElement([faker.lorem.words(), null]),
         budgeted: faker.number.int(),
         activity: faker.number.int(),
         balance: faker.number.int(),
         goal_type: faker.helpers.arrayElement([
-          'TB',
-          'TBD',
-          'MF',
-          'NEED',
-          'DEBT',
+          faker.helpers.arrayElement(['TB', 'TBD', 'MF', 'NEED', 'DEBT', null]),
+          faker.helpers.arrayElement(['TB', 'TBD', 'MF', 'NEED', 'DEBT', null]),
+        ]),
+        goal_needs_whole_amount: faker.helpers.arrayElement([
+          faker.datatype.boolean(),
           null,
         ]),
-        goal_needs_whole_amount: faker.datatype.boolean(),
-        goal_day: faker.number.int(),
-        goal_cadence: faker.number.int(),
-        goal_cadence_frequency: faker.number.int(),
-        goal_creation_month: faker.date.past().toISOString().substring(0, 10),
-        goal_target: faker.number.int(),
-        goal_target_month: faker.date.past().toISOString().substring(0, 10),
-        goal_percentage_complete: faker.number.int(),
-        goal_months_to_budget: faker.number.int(),
-        goal_under_funded: faker.number.int(),
-        goal_overall_funded: faker.number.int(),
-        goal_overall_left: faker.number.int(),
-        goal_snoozed_at: faker.date.past(),
+        goal_day: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_cadence: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_cadence_frequency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_creation_month: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_target: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_target_month: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_target_date: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_percentage_complete: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_months_to_budget: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_under_funded: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_funded: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_left: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_snoozed_at: faker.helpers.arrayElement([
+          faker.date.anytime().toISOString(),
+          null,
+        ]),
         deleted: faker.datatype.boolean(),
+        balance_formatted: faker.lorem.words(),
+        balance_currency: faker.number.int(),
+        activity_formatted: faker.lorem.words(),
+        activity_currency: faker.number.int(),
+        budgeted_formatted: faker.lorem.words(),
+        budgeted_currency: faker.number.int(),
+        goal_target_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_target_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_under_funded_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_under_funded_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_funded_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_overall_funded_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_left_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_overall_left_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
       },
     },
   };
@@ -1266,33 +2669,105 @@ export function getUpdateCategory200Response() {
         category_group_name: faker.person.fullName(),
         name: faker.person.fullName(),
         hidden: faker.datatype.boolean(),
-        original_category_group_id: faker.string.uuid(),
-        note: faker.lorem.words(),
+        internal: faker.datatype.boolean(),
+        original_category_group_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
+          null,
+        ]),
+        note: faker.helpers.arrayElement([faker.lorem.words(), null]),
         budgeted: faker.number.int(),
         activity: faker.number.int(),
         balance: faker.number.int(),
         goal_type: faker.helpers.arrayElement([
-          'TB',
-          'TBD',
-          'MF',
-          'NEED',
-          'DEBT',
+          faker.helpers.arrayElement(['TB', 'TBD', 'MF', 'NEED', 'DEBT', null]),
+          faker.helpers.arrayElement(['TB', 'TBD', 'MF', 'NEED', 'DEBT', null]),
+        ]),
+        goal_needs_whole_amount: faker.helpers.arrayElement([
+          faker.datatype.boolean(),
           null,
         ]),
-        goal_needs_whole_amount: faker.datatype.boolean(),
-        goal_day: faker.number.int(),
-        goal_cadence: faker.number.int(),
-        goal_cadence_frequency: faker.number.int(),
-        goal_creation_month: faker.date.past().toISOString().substring(0, 10),
-        goal_target: faker.number.int(),
-        goal_target_month: faker.date.past().toISOString().substring(0, 10),
-        goal_percentage_complete: faker.number.int(),
-        goal_months_to_budget: faker.number.int(),
-        goal_under_funded: faker.number.int(),
-        goal_overall_funded: faker.number.int(),
-        goal_overall_left: faker.number.int(),
-        goal_snoozed_at: faker.date.past(),
+        goal_day: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_cadence: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_cadence_frequency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_creation_month: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_target: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_target_month: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_target_date: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_percentage_complete: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_months_to_budget: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_under_funded: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_funded: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_left: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_snoozed_at: faker.helpers.arrayElement([
+          faker.date.anytime().toISOString(),
+          null,
+        ]),
         deleted: faker.datatype.boolean(),
+        balance_formatted: faker.lorem.words(),
+        balance_currency: faker.number.int(),
+        activity_formatted: faker.lorem.words(),
+        activity_currency: faker.number.int(),
+        budgeted_formatted: faker.lorem.words(),
+        budgeted_currency: faker.number.int(),
+        goal_target_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_target_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_under_funded_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_under_funded_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_funded_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_overall_funded_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_left_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_overall_left_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
       },
       server_knowledge: faker.number.int(),
     },
@@ -1308,33 +2783,105 @@ export function getGetMonthCategoryById200Response() {
         category_group_name: faker.person.fullName(),
         name: faker.person.fullName(),
         hidden: faker.datatype.boolean(),
-        original_category_group_id: faker.string.uuid(),
-        note: faker.lorem.words(),
+        internal: faker.datatype.boolean(),
+        original_category_group_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
+          null,
+        ]),
+        note: faker.helpers.arrayElement([faker.lorem.words(), null]),
         budgeted: faker.number.int(),
         activity: faker.number.int(),
         balance: faker.number.int(),
         goal_type: faker.helpers.arrayElement([
-          'TB',
-          'TBD',
-          'MF',
-          'NEED',
-          'DEBT',
+          faker.helpers.arrayElement(['TB', 'TBD', 'MF', 'NEED', 'DEBT', null]),
+          faker.helpers.arrayElement(['TB', 'TBD', 'MF', 'NEED', 'DEBT', null]),
+        ]),
+        goal_needs_whole_amount: faker.helpers.arrayElement([
+          faker.datatype.boolean(),
           null,
         ]),
-        goal_needs_whole_amount: faker.datatype.boolean(),
-        goal_day: faker.number.int(),
-        goal_cadence: faker.number.int(),
-        goal_cadence_frequency: faker.number.int(),
-        goal_creation_month: faker.date.past().toISOString().substring(0, 10),
-        goal_target: faker.number.int(),
-        goal_target_month: faker.date.past().toISOString().substring(0, 10),
-        goal_percentage_complete: faker.number.int(),
-        goal_months_to_budget: faker.number.int(),
-        goal_under_funded: faker.number.int(),
-        goal_overall_funded: faker.number.int(),
-        goal_overall_left: faker.number.int(),
-        goal_snoozed_at: faker.date.past(),
+        goal_day: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_cadence: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_cadence_frequency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_creation_month: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_target: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_target_month: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_target_date: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_percentage_complete: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_months_to_budget: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_under_funded: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_funded: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_left: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_snoozed_at: faker.helpers.arrayElement([
+          faker.date.anytime().toISOString(),
+          null,
+        ]),
         deleted: faker.datatype.boolean(),
+        balance_formatted: faker.lorem.words(),
+        balance_currency: faker.number.int(),
+        activity_formatted: faker.lorem.words(),
+        activity_currency: faker.number.int(),
+        budgeted_formatted: faker.lorem.words(),
+        budgeted_currency: faker.number.int(),
+        goal_target_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_target_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_under_funded_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_under_funded_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_funded_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_overall_funded_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_left_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_overall_left_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
       },
     },
   };
@@ -1349,32 +2896,134 @@ export function getUpdateMonthCategory200Response() {
         category_group_name: faker.person.fullName(),
         name: faker.person.fullName(),
         hidden: faker.datatype.boolean(),
-        original_category_group_id: faker.string.uuid(),
-        note: faker.lorem.words(),
+        internal: faker.datatype.boolean(),
+        original_category_group_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
+          null,
+        ]),
+        note: faker.helpers.arrayElement([faker.lorem.words(), null]),
         budgeted: faker.number.int(),
         activity: faker.number.int(),
         balance: faker.number.int(),
         goal_type: faker.helpers.arrayElement([
-          'TB',
-          'TBD',
-          'MF',
-          'NEED',
-          'DEBT',
+          faker.helpers.arrayElement(['TB', 'TBD', 'MF', 'NEED', 'DEBT', null]),
+          faker.helpers.arrayElement(['TB', 'TBD', 'MF', 'NEED', 'DEBT', null]),
+        ]),
+        goal_needs_whole_amount: faker.helpers.arrayElement([
+          faker.datatype.boolean(),
           null,
         ]),
-        goal_needs_whole_amount: faker.datatype.boolean(),
-        goal_day: faker.number.int(),
-        goal_cadence: faker.number.int(),
-        goal_cadence_frequency: faker.number.int(),
-        goal_creation_month: faker.date.past().toISOString().substring(0, 10),
-        goal_target: faker.number.int(),
-        goal_target_month: faker.date.past().toISOString().substring(0, 10),
-        goal_percentage_complete: faker.number.int(),
-        goal_months_to_budget: faker.number.int(),
-        goal_under_funded: faker.number.int(),
-        goal_overall_funded: faker.number.int(),
-        goal_overall_left: faker.number.int(),
-        goal_snoozed_at: faker.date.past(),
+        goal_day: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_cadence: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_cadence_frequency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_creation_month: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_target: faker.helpers.arrayElement([faker.number.int(), null]),
+        goal_target_month: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_target_date: faker.helpers.arrayElement([
+          faker.date.past().toISOString().substring(0, 10),
+          null,
+        ]),
+        goal_percentage_complete: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_months_to_budget: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_under_funded: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_funded: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_left: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_snoozed_at: faker.helpers.arrayElement([
+          faker.date.anytime().toISOString(),
+          null,
+        ]),
+        deleted: faker.datatype.boolean(),
+        balance_formatted: faker.lorem.words(),
+        balance_currency: faker.number.int(),
+        activity_formatted: faker.lorem.words(),
+        activity_currency: faker.number.int(),
+        budgeted_formatted: faker.lorem.words(),
+        budgeted_currency: faker.number.int(),
+        goal_target_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_target_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_under_funded_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_under_funded_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_funded_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_overall_funded_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+        goal_overall_left_formatted: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        goal_overall_left_currency: faker.helpers.arrayElement([
+          faker.number.int(),
+          null,
+        ]),
+      },
+      server_knowledge: faker.number.int(),
+    },
+  };
+}
+
+export function getCreateCategoryGroup201Response() {
+  return {
+    data: {
+      category_group: {
+        id: faker.string.uuid(),
+        name: faker.person.fullName(),
+        hidden: faker.datatype.boolean(),
+        internal: faker.datatype.boolean(),
+        deleted: faker.datatype.boolean(),
+      },
+      server_knowledge: faker.number.int(),
+    },
+  };
+}
+
+export function getUpdateCategoryGroup200Response() {
+  return {
+    data: {
+      category_group: {
+        id: faker.string.uuid(),
+        name: faker.person.fullName(),
+        hidden: faker.datatype.boolean(),
+        internal: faker.datatype.boolean(),
         deleted: faker.datatype.boolean(),
       },
       server_knowledge: faker.number.int(),
@@ -1385,14 +3034,39 @@ export function getUpdateMonthCategory200Response() {
 export function getGetPayees200Response() {
   return {
     data: {
-      payees: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
+      payees: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => ({
+          id: faker.string.uuid(),
+          name: faker.person.fullName(),
+          transfer_account_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          deleted: faker.datatype.boolean(),
+        }));
+      })(),
+      server_knowledge: faker.number.int(),
+    },
+  };
+}
+
+export function getCreatePayee201Response() {
+  return {
+    data: {
+      payee: {
         id: faker.string.uuid(),
         name: faker.person.fullName(),
-        transfer_account_id: faker.string.uuid(),
+        transfer_account_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
         deleted: faker.datatype.boolean(),
-      })),
+      },
       server_knowledge: faker.number.int(),
     },
   };
@@ -1404,7 +3078,10 @@ export function getGetPayeeById200Response() {
       payee: {
         id: faker.string.uuid(),
         name: faker.person.fullName(),
-        transfer_account_id: faker.string.uuid(),
+        transfer_account_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
         deleted: faker.datatype.boolean(),
       },
     },
@@ -1417,7 +3094,10 @@ export function getUpdatePayee200Response() {
       payee: {
         id: faker.string.uuid(),
         name: faker.person.fullName(),
-        transfer_account_id: faker.string.uuid(),
+        transfer_account_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
         deleted: faker.datatype.boolean(),
       },
       server_knowledge: faker.number.int(),
@@ -1428,15 +3108,20 @@ export function getUpdatePayee200Response() {
 export function getGetPayeeLocations200Response() {
   return {
     data: {
-      payee_locations: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        latitude: faker.lorem.words(),
-        longitude: faker.lorem.words(),
-        deleted: faker.datatype.boolean(),
-      })),
+      payee_locations: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => ({
+          id: faker.string.uuid(),
+          payee_id: faker.string.uuid(),
+          latitude: faker.lorem.words(),
+          longitude: faker.lorem.words(),
+          deleted: faker.datatype.boolean(),
+        }));
+      })(),
     },
   };
 }
@@ -1458,90 +3143,352 @@ export function getGetPayeeLocationById200Response() {
 export function getGetPayeeLocationsByPayee200Response() {
   return {
     data: {
-      payee_locations: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        latitude: faker.lorem.words(),
-        longitude: faker.lorem.words(),
-        deleted: faker.datatype.boolean(),
-      })),
+      payee_locations: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => ({
+          id: faker.string.uuid(),
+          payee_id: faker.string.uuid(),
+          latitude: faker.lorem.words(),
+          longitude: faker.lorem.words(),
+          deleted: faker.datatype.boolean(),
+        }));
+      })(),
     },
   };
 }
 
-export function getGetBudgetMonths200Response() {
+export function getGetPlanMonths200Response() {
   return {
     data: {
-      months: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        month: faker.date.past().toISOString().substring(0, 10),
-        note: faker.lorem.words(),
-        income: faker.number.int(),
-        budgeted: faker.number.int(),
-        activity: faker.number.int(),
-        to_be_budgeted: faker.number.int(),
-        age_of_money: faker.number.int(),
-        deleted: faker.datatype.boolean(),
-      })),
+      months: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => ({
+          month: faker.date.past().toISOString().substring(0, 10),
+          note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          income: faker.number.int(),
+          budgeted: faker.number.int(),
+          activity: faker.number.int(),
+          to_be_budgeted: faker.number.int(),
+          age_of_money: faker.helpers.arrayElement([faker.number.int(), null]),
+          deleted: faker.datatype.boolean(),
+          income_formatted: faker.lorem.words(),
+          income_currency: faker.number.int(),
+          budgeted_formatted: faker.lorem.words(),
+          budgeted_currency: faker.number.int(),
+          activity_formatted: faker.lorem.words(),
+          activity_currency: faker.number.int(),
+          to_be_budgeted_formatted: faker.lorem.words(),
+          to_be_budgeted_currency: faker.number.int(),
+        }));
+      })(),
       server_knowledge: faker.number.int(),
     },
   };
 }
 
-export function getGetBudgetMonth200Response() {
+export function getGetPlanMonth200Response() {
   return {
     data: {
       month: {
         month: faker.date.past().toISOString().substring(0, 10),
-        note: faker.lorem.words(),
+        note: faker.helpers.arrayElement([faker.lorem.words(), null]),
         income: faker.number.int(),
         budgeted: faker.number.int(),
         activity: faker.number.int(),
         to_be_budgeted: faker.number.int(),
-        age_of_money: faker.number.int(),
+        age_of_money: faker.helpers.arrayElement([faker.number.int(), null]),
         deleted: faker.datatype.boolean(),
-        categories: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
+        income_formatted: faker.lorem.words(),
+        income_currency: faker.number.int(),
+        budgeted_formatted: faker.lorem.words(),
+        budgeted_currency: faker.number.int(),
+        activity_formatted: faker.lorem.words(),
+        activity_currency: faker.number.int(),
+        to_be_budgeted_formatted: faker.lorem.words(),
+        to_be_budgeted_currency: faker.number.int(),
+        categories: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            category_group_id: faker.string.uuid(),
+            category_group_name: faker.person.fullName(),
+            name: faker.person.fullName(),
+            hidden: faker.datatype.boolean(),
+            internal: faker.datatype.boolean(),
+            original_category_group_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            budgeted: faker.number.int(),
+            activity: faker.number.int(),
+            balance: faker.number.int(),
+            goal_type: faker.helpers.arrayElement([
+              faker.helpers.arrayElement([
+                'TB',
+                'TBD',
+                'MF',
+                'NEED',
+                'DEBT',
+                null,
+              ]),
+              faker.helpers.arrayElement([
+                'TB',
+                'TBD',
+                'MF',
+                'NEED',
+                'DEBT',
+                null,
+              ]),
+            ]),
+            goal_needs_whole_amount: faker.helpers.arrayElement([
+              faker.datatype.boolean(),
+              null,
+            ]),
+            goal_day: faker.helpers.arrayElement([faker.number.int(), null]),
+            goal_cadence: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_cadence_frequency: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_creation_month: faker.helpers.arrayElement([
+              faker.date.past().toISOString().substring(0, 10),
+              null,
+            ]),
+            goal_target: faker.helpers.arrayElement([faker.number.int(), null]),
+            goal_target_month: faker.helpers.arrayElement([
+              faker.date.past().toISOString().substring(0, 10),
+              null,
+            ]),
+            goal_target_date: faker.helpers.arrayElement([
+              faker.date.past().toISOString().substring(0, 10),
+              null,
+            ]),
+            goal_percentage_complete: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_months_to_budget: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_under_funded: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_overall_funded: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_overall_left: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_snoozed_at: faker.helpers.arrayElement([
+              faker.date.anytime().toISOString(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            balance_formatted: faker.lorem.words(),
+            balance_currency: faker.number.int(),
+            activity_formatted: faker.lorem.words(),
+            activity_currency: faker.number.int(),
+            budgeted_formatted: faker.lorem.words(),
+            budgeted_currency: faker.number.int(),
+            goal_target_formatted: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            goal_target_currency: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_under_funded_formatted: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            goal_under_funded_currency: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_overall_funded_formatted: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            goal_overall_funded_currency: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+            goal_overall_left_formatted: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            goal_overall_left_currency: faker.helpers.arrayElement([
+              faker.number.int(),
+              null,
+            ]),
+          }));
+        })(),
+      },
+    },
+  };
+}
+
+export function getGetMoneyMovements200Response() {
+  return {
+    data: {
+      money_movements: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
         ].map((_) => ({
           id: faker.string.uuid(),
-          category_group_id: faker.string.uuid(),
-          category_group_name: faker.person.fullName(),
-          name: faker.person.fullName(),
-          hidden: faker.datatype.boolean(),
-          original_category_group_id: faker.string.uuid(),
-          note: faker.lorem.words(),
-          budgeted: faker.number.int(),
-          activity: faker.number.int(),
-          balance: faker.number.int(),
-          goal_type: faker.helpers.arrayElement([
-            'TB',
-            'TBD',
-            'MF',
-            'NEED',
-            'DEBT',
+          month: faker.helpers.arrayElement([
+            faker.date.past().toISOString().substring(0, 10),
             null,
           ]),
-          goal_needs_whole_amount: faker.datatype.boolean(),
-          goal_day: faker.number.int(),
-          goal_cadence: faker.number.int(),
-          goal_cadence_frequency: faker.number.int(),
-          goal_creation_month: faker.date.past().toISOString().substring(0, 10),
-          goal_target: faker.number.int(),
-          goal_target_month: faker.date.past().toISOString().substring(0, 10),
-          goal_percentage_complete: faker.number.int(),
-          goal_months_to_budget: faker.number.int(),
-          goal_under_funded: faker.number.int(),
-          goal_overall_funded: faker.number.int(),
-          goal_overall_left: faker.number.int(),
-          goal_snoozed_at: faker.date.past(),
-          deleted: faker.datatype.boolean(),
-        })),
-      },
+          moved_at: faker.helpers.arrayElement([
+            faker.date.anytime().toISOString(),
+            null,
+          ]),
+          note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          money_movement_group_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          performed_by_user_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          from_category_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          to_category_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          amount: faker.number.int(),
+          amount_formatted: faker.lorem.words(),
+          amount_currency: faker.number.int(),
+        }));
+      })(),
+      server_knowledge: faker.number.int(),
+    },
+  };
+}
+
+export function getGetMoneyMovementsByMonth200Response() {
+  return {
+    data: {
+      money_movements: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => ({
+          id: faker.string.uuid(),
+          month: faker.helpers.arrayElement([
+            faker.date.past().toISOString().substring(0, 10),
+            null,
+          ]),
+          moved_at: faker.helpers.arrayElement([
+            faker.date.anytime().toISOString(),
+            null,
+          ]),
+          note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          money_movement_group_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          performed_by_user_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          from_category_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          to_category_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          amount: faker.number.int(),
+          amount_formatted: faker.lorem.words(),
+          amount_currency: faker.number.int(),
+        }));
+      })(),
+      server_knowledge: faker.number.int(),
+    },
+  };
+}
+
+export function getGetMoneyMovementGroups200Response() {
+  return {
+    data: {
+      money_movement_groups: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => ({
+          id: faker.string.uuid(),
+          group_created_at: faker.date.anytime().toISOString(),
+          month: faker.date.past().toISOString().substring(0, 10),
+          note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          performed_by_user_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+        }));
+      })(),
+      server_knowledge: faker.number.int(),
+    },
+  };
+}
+
+export function getGetMoneyMovementGroupsByMonth200Response() {
+  return {
+    data: {
+      money_movement_groups: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => ({
+          id: faker.string.uuid(),
+          group_created_at: faker.date.anytime().toISOString(),
+          month: faker.date.past().toISOString().substring(0, 10),
+          note: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          performed_by_user_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+        }));
+      })(),
+      server_knowledge: faker.number.int(),
     },
   };
 }
@@ -1549,72 +3496,144 @@ export function getGetBudgetMonth200Response() {
 export function getGetTransactions200Response() {
   return {
     data: {
-      transactions: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        id: faker.string.uuid(),
-        date: faker.date.past().toISOString().substring(0, 10),
-        amount: faker.number.int(),
-        memo: faker.lorem.words(),
-        cleared: faker.helpers.arrayElement([
-          'cleared',
-          'uncleared',
-          'reconciled',
-        ]),
-        approved: faker.datatype.boolean(),
-        flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
-          null,
-        ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
-        transfer_transaction_id: faker.string.uuid(),
-        matched_transaction_id: faker.string.uuid(),
-        import_id: faker.string.uuid(),
-        import_payee_name: faker.person.fullName(),
-        import_payee_name_original: faker.lorem.words(),
-        debt_transaction_type: faker.helpers.arrayElement([
-          'payment',
-          'refund',
-          'fee',
-          'interest',
-          'escrow',
-          'balanceAdjustment',
-          'credit',
-          'charge',
-          null,
-        ]),
-        deleted: faker.datatype.boolean(),
-        account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
+      transactions: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
         ].map((_) => ({
           id: faker.string.uuid(),
-          transaction_id: faker.string.uuid(),
+          date: faker.date.past().toISOString().substring(0, 10),
           amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          transfer_transaction_id: faker.string.uuid(),
+          memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          cleared: faker.helpers.arrayElement([
+            'cleared',
+            'uncleared',
+            'reconciled',
+          ]),
+          approved: faker.datatype.boolean(),
+          flag_color: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+          ]),
+          flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          account_id: faker.string.uuid(),
+          payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          transfer_account_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          transfer_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          matched_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          import_payee_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_payee_name_original: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          debt_transaction_type: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+          ]),
           deleted: faker.datatype.boolean(),
-        })),
-      })),
+          amount_formatted: faker.lorem.words(),
+          amount_currency: faker.number.int(),
+          account_name: faker.person.fullName(),
+          payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          category_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          subtransactions: (() => {
+            const arrayMin = 1;
+            const arrayMax = MAX_ARRAY_LENGTH;
+            const safeMin = Math.min(arrayMin, arrayMax);
+            return [
+              ...new Array(
+                faker.number.int({min: safeMin, max: arrayMax}),
+              ).keys(),
+            ].map((_) => ({
+              id: faker.string.uuid(),
+              transaction_id: faker.string.uuid(),
+              amount: faker.number.int(),
+              memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+              payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+              payee_name: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              category_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              category_name: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              transfer_account_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              transfer_transaction_id: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              deleted: faker.datatype.boolean(),
+              amount_formatted: faker.lorem.words(),
+              amount_currency: faker.number.int(),
+            }));
+          })(),
+        }));
+      })(),
       server_knowledge: faker.number.int(),
     },
   };
@@ -1623,14 +3642,19 @@ export function getGetTransactions200Response() {
 export function getCreateTransaction201Response() {
   return {
     data: {
-      transaction_ids: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => faker.lorem.words()),
+      transaction_ids: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => faker.lorem.words());
+      })(),
       transaction: {
         id: faker.string.uuid(),
         date: faker.date.past().toISOString().substring(0, 10),
         amount: faker.number.int(),
-        memo: faker.lorem.words(),
+        memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
         cleared: faker.helpers.arrayElement([
           'cleared',
           'uncleared',
@@ -1638,65 +3662,286 @@ export function getCreateTransaction201Response() {
         ]),
         approved: faker.datatype.boolean(),
         flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+        ]),
+        flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        account_id: faker.string.uuid(),
+        payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        transfer_account_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
           null,
         ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
-        transfer_transaction_id: faker.string.uuid(),
-        matched_transaction_id: faker.string.uuid(),
-        import_id: faker.string.uuid(),
-        import_payee_name: faker.person.fullName(),
-        import_payee_name_original: faker.lorem.words(),
-        debt_transaction_type: faker.helpers.arrayElement([
-          'payment',
-          'refund',
-          'fee',
-          'interest',
-          'escrow',
-          'balanceAdjustment',
-          'credit',
-          'charge',
+        transfer_transaction_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
           null,
+        ]),
+        matched_transaction_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        import_payee_name: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        import_payee_name_original: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        debt_transaction_type: faker.helpers.arrayElement([
+          faker.helpers.arrayElement([
+            'payment',
+            'refund',
+            'fee',
+            'interest',
+            'escrow',
+            'balanceAdjustment',
+            'credit',
+            'charge',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'payment',
+            'refund',
+            'fee',
+            'interest',
+            'escrow',
+            'balanceAdjustment',
+            'credit',
+            'charge',
+            null,
+          ]),
         ]),
         deleted: faker.datatype.boolean(),
+        amount_formatted: faker.lorem.words(),
+        amount_currency: faker.number.int(),
         account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
+        payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        category_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        subtransactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            transaction_id: faker.string.uuid(),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            category_name: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            transfer_transaction_id: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            amount_formatted: faker.lorem.words(),
+            amount_currency: faker.number.int(),
+          }));
+        })(),
+      },
+      transactions: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
         ].map((_) => ({
           id: faker.string.uuid(),
-          transaction_id: faker.string.uuid(),
+          date: faker.date.past().toISOString().substring(0, 10),
           amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          transfer_transaction_id: faker.string.uuid(),
+          memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          cleared: faker.helpers.arrayElement([
+            'cleared',
+            'uncleared',
+            'reconciled',
+          ]),
+          approved: faker.datatype.boolean(),
+          flag_color: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+          ]),
+          flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          account_id: faker.string.uuid(),
+          payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          transfer_account_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          transfer_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          matched_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          import_payee_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_payee_name_original: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          debt_transaction_type: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+          ]),
           deleted: faker.datatype.boolean(),
-        })),
-      },
-      transactions: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
+          amount_formatted: faker.lorem.words(),
+          amount_currency: faker.number.int(),
+          account_name: faker.person.fullName(),
+          payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          category_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          subtransactions: (() => {
+            const arrayMin = 1;
+            const arrayMax = MAX_ARRAY_LENGTH;
+            const safeMin = Math.min(arrayMin, arrayMax);
+            return [
+              ...new Array(
+                faker.number.int({min: safeMin, max: arrayMax}),
+              ).keys(),
+            ].map((_) => ({
+              id: faker.string.uuid(),
+              transaction_id: faker.string.uuid(),
+              amount: faker.number.int(),
+              memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+              payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+              payee_name: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              category_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              category_name: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              transfer_account_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              transfer_transaction_id: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              deleted: faker.datatype.boolean(),
+              amount_formatted: faker.lorem.words(),
+              amount_currency: faker.number.int(),
+            }));
+          })(),
+        }));
+      })(),
+      duplicate_import_ids: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => faker.lorem.words());
+      })(),
+      server_knowledge: faker.number.int(),
+    },
+  };
+}
+
+export function getUpdateTransactions200Response() {
+  return {
+    data: {
+      transaction_ids: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => faker.lorem.words());
+      })(),
+      transaction: {
         id: faker.string.uuid(),
         date: faker.date.past().toISOString().substring(0, 10),
         amount: faker.number.int(),
-        memo: faker.lorem.words(),
+        memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
         cleared: faker.helpers.arrayElement([
           'cleared',
           'uncleared',
@@ -1704,61 +3949,265 @@ export function getCreateTransaction201Response() {
         ]),
         approved: faker.datatype.boolean(),
         flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+        ]),
+        flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        account_id: faker.string.uuid(),
+        payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        transfer_account_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
           null,
         ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
-        transfer_transaction_id: faker.string.uuid(),
-        matched_transaction_id: faker.string.uuid(),
-        import_id: faker.string.uuid(),
-        import_payee_name: faker.person.fullName(),
-        import_payee_name_original: faker.lorem.words(),
-        debt_transaction_type: faker.helpers.arrayElement([
-          'payment',
-          'refund',
-          'fee',
-          'interest',
-          'escrow',
-          'balanceAdjustment',
-          'credit',
-          'charge',
+        transfer_transaction_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
           null,
+        ]),
+        matched_transaction_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        import_payee_name: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        import_payee_name_original: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        debt_transaction_type: faker.helpers.arrayElement([
+          faker.helpers.arrayElement([
+            'payment',
+            'refund',
+            'fee',
+            'interest',
+            'escrow',
+            'balanceAdjustment',
+            'credit',
+            'charge',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'payment',
+            'refund',
+            'fee',
+            'interest',
+            'escrow',
+            'balanceAdjustment',
+            'credit',
+            'charge',
+            null,
+          ]),
         ]),
         deleted: faker.datatype.boolean(),
+        amount_formatted: faker.lorem.words(),
+        amount_currency: faker.number.int(),
         account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
+        payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        category_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        subtransactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            transaction_id: faker.string.uuid(),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            category_name: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            transfer_transaction_id: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            amount_formatted: faker.lorem.words(),
+            amount_currency: faker.number.int(),
+          }));
+        })(),
+      },
+      transactions: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
         ].map((_) => ({
           id: faker.string.uuid(),
-          transaction_id: faker.string.uuid(),
+          date: faker.date.past().toISOString().substring(0, 10),
           amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          transfer_transaction_id: faker.string.uuid(),
+          memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          cleared: faker.helpers.arrayElement([
+            'cleared',
+            'uncleared',
+            'reconciled',
+          ]),
+          approved: faker.datatype.boolean(),
+          flag_color: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+          ]),
+          flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          account_id: faker.string.uuid(),
+          payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          transfer_account_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          transfer_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          matched_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          import_payee_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_payee_name_original: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          debt_transaction_type: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+          ]),
           deleted: faker.datatype.boolean(),
-        })),
-      })),
-      duplicate_import_ids: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => faker.lorem.words()),
+          amount_formatted: faker.lorem.words(),
+          amount_currency: faker.number.int(),
+          account_name: faker.person.fullName(),
+          payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          category_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          subtransactions: (() => {
+            const arrayMin = 1;
+            const arrayMax = MAX_ARRAY_LENGTH;
+            const safeMin = Math.min(arrayMin, arrayMax);
+            return [
+              ...new Array(
+                faker.number.int({min: safeMin, max: arrayMax}),
+              ).keys(),
+            ].map((_) => ({
+              id: faker.string.uuid(),
+              transaction_id: faker.string.uuid(),
+              amount: faker.number.int(),
+              memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+              payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+              payee_name: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              category_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              category_name: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              transfer_account_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              transfer_transaction_id: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              deleted: faker.datatype.boolean(),
+              amount_formatted: faker.lorem.words(),
+              amount_currency: faker.number.int(),
+            }));
+          })(),
+        }));
+      })(),
+      duplicate_import_ids: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => faker.lorem.words());
+      })(),
       server_knowledge: faker.number.int(),
     },
   };
@@ -1767,9 +4216,14 @@ export function getCreateTransaction201Response() {
 export function getImportTransactions200Response() {
   return {
     data: {
-      transaction_ids: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => faker.lorem.words()),
+      transaction_ids: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => faker.lorem.words());
+      })(),
     },
   };
 }
@@ -1777,9 +4231,14 @@ export function getImportTransactions200Response() {
 export function getImportTransactions201Response() {
   return {
     data: {
-      transaction_ids: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => faker.lorem.words()),
+      transaction_ids: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => faker.lorem.words());
+      })(),
     },
   };
 }
@@ -1791,7 +4250,7 @@ export function getGetTransactionById200Response() {
         id: faker.string.uuid(),
         date: faker.date.past().toISOString().substring(0, 10),
         amount: faker.number.int(),
-        memo: faker.lorem.words(),
+        memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
         cleared: faker.helpers.arrayElement([
           'cleared',
           'uncleared',
@@ -1799,57 +4258,118 @@ export function getGetTransactionById200Response() {
         ]),
         approved: faker.datatype.boolean(),
         flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+        ]),
+        flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        account_id: faker.string.uuid(),
+        payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        transfer_account_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
           null,
         ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
-        transfer_transaction_id: faker.string.uuid(),
-        matched_transaction_id: faker.string.uuid(),
-        import_id: faker.string.uuid(),
-        import_payee_name: faker.person.fullName(),
-        import_payee_name_original: faker.lorem.words(),
-        debt_transaction_type: faker.helpers.arrayElement([
-          'payment',
-          'refund',
-          'fee',
-          'interest',
-          'escrow',
-          'balanceAdjustment',
-          'credit',
-          'charge',
+        transfer_transaction_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
           null,
+        ]),
+        matched_transaction_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        import_payee_name: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        import_payee_name_original: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        debt_transaction_type: faker.helpers.arrayElement([
+          faker.helpers.arrayElement([
+            'payment',
+            'refund',
+            'fee',
+            'interest',
+            'escrow',
+            'balanceAdjustment',
+            'credit',
+            'charge',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'payment',
+            'refund',
+            'fee',
+            'interest',
+            'escrow',
+            'balanceAdjustment',
+            'credit',
+            'charge',
+            null,
+          ]),
         ]),
         deleted: faker.datatype.boolean(),
+        amount_formatted: faker.lorem.words(),
+        amount_currency: faker.number.int(),
         account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          transaction_id: faker.string.uuid(),
-          amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          transfer_transaction_id: faker.string.uuid(),
-          deleted: faker.datatype.boolean(),
-        })),
+        payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        category_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        subtransactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            transaction_id: faker.string.uuid(),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            category_name: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            transfer_transaction_id: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            amount_formatted: faker.lorem.words(),
+            amount_currency: faker.number.int(),
+          }));
+        })(),
       },
       server_knowledge: faker.number.int(),
     },
@@ -1863,7 +4383,7 @@ export function getUpdateTransaction200Response() {
         id: faker.string.uuid(),
         date: faker.date.past().toISOString().substring(0, 10),
         amount: faker.number.int(),
-        memo: faker.lorem.words(),
+        memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
         cleared: faker.helpers.arrayElement([
           'cleared',
           'uncleared',
@@ -1871,57 +4391,118 @@ export function getUpdateTransaction200Response() {
         ]),
         approved: faker.datatype.boolean(),
         flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+        ]),
+        flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        account_id: faker.string.uuid(),
+        payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        transfer_account_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
           null,
         ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
-        transfer_transaction_id: faker.string.uuid(),
-        matched_transaction_id: faker.string.uuid(),
-        import_id: faker.string.uuid(),
-        import_payee_name: faker.person.fullName(),
-        import_payee_name_original: faker.lorem.words(),
-        debt_transaction_type: faker.helpers.arrayElement([
-          'payment',
-          'refund',
-          'fee',
-          'interest',
-          'escrow',
-          'balanceAdjustment',
-          'credit',
-          'charge',
+        transfer_transaction_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
           null,
+        ]),
+        matched_transaction_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        import_payee_name: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        import_payee_name_original: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        debt_transaction_type: faker.helpers.arrayElement([
+          faker.helpers.arrayElement([
+            'payment',
+            'refund',
+            'fee',
+            'interest',
+            'escrow',
+            'balanceAdjustment',
+            'credit',
+            'charge',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'payment',
+            'refund',
+            'fee',
+            'interest',
+            'escrow',
+            'balanceAdjustment',
+            'credit',
+            'charge',
+            null,
+          ]),
         ]),
         deleted: faker.datatype.boolean(),
+        amount_formatted: faker.lorem.words(),
+        amount_currency: faker.number.int(),
         account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          transaction_id: faker.string.uuid(),
-          amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          transfer_transaction_id: faker.string.uuid(),
-          deleted: faker.datatype.boolean(),
-        })),
+        payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        category_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        subtransactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            transaction_id: faker.string.uuid(),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            category_name: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            transfer_transaction_id: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            amount_formatted: faker.lorem.words(),
+            amount_currency: faker.number.int(),
+          }));
+        })(),
       },
       server_knowledge: faker.number.int(),
     },
@@ -1935,7 +4516,7 @@ export function getDeleteTransaction200Response() {
         id: faker.string.uuid(),
         date: faker.date.past().toISOString().substring(0, 10),
         amount: faker.number.int(),
-        memo: faker.lorem.words(),
+        memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
         cleared: faker.helpers.arrayElement([
           'cleared',
           'uncleared',
@@ -1943,57 +4524,118 @@ export function getDeleteTransaction200Response() {
         ]),
         approved: faker.datatype.boolean(),
         flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+        ]),
+        flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        account_id: faker.string.uuid(),
+        payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        transfer_account_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
           null,
         ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
-        transfer_transaction_id: faker.string.uuid(),
-        matched_transaction_id: faker.string.uuid(),
-        import_id: faker.string.uuid(),
-        import_payee_name: faker.person.fullName(),
-        import_payee_name_original: faker.lorem.words(),
-        debt_transaction_type: faker.helpers.arrayElement([
-          'payment',
-          'refund',
-          'fee',
-          'interest',
-          'escrow',
-          'balanceAdjustment',
-          'credit',
-          'charge',
+        transfer_transaction_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
           null,
+        ]),
+        matched_transaction_id: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        import_payee_name: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        import_payee_name_original: faker.helpers.arrayElement([
+          faker.lorem.words(),
+          null,
+        ]),
+        debt_transaction_type: faker.helpers.arrayElement([
+          faker.helpers.arrayElement([
+            'payment',
+            'refund',
+            'fee',
+            'interest',
+            'escrow',
+            'balanceAdjustment',
+            'credit',
+            'charge',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'payment',
+            'refund',
+            'fee',
+            'interest',
+            'escrow',
+            'balanceAdjustment',
+            'credit',
+            'charge',
+            null,
+          ]),
         ]),
         deleted: faker.datatype.boolean(),
+        amount_formatted: faker.lorem.words(),
+        amount_currency: faker.number.int(),
         account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          transaction_id: faker.string.uuid(),
-          amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          transfer_transaction_id: faker.string.uuid(),
-          deleted: faker.datatype.boolean(),
-        })),
+        payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        category_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        subtransactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            transaction_id: faker.string.uuid(),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            category_name: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            transfer_transaction_id: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            amount_formatted: faker.lorem.words(),
+            amount_currency: faker.number.int(),
+          }));
+        })(),
       },
       server_knowledge: faker.number.int(),
     },
@@ -2003,72 +4645,144 @@ export function getDeleteTransaction200Response() {
 export function getGetTransactionsByAccount200Response() {
   return {
     data: {
-      transactions: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        id: faker.string.uuid(),
-        date: faker.date.past().toISOString().substring(0, 10),
-        amount: faker.number.int(),
-        memo: faker.lorem.words(),
-        cleared: faker.helpers.arrayElement([
-          'cleared',
-          'uncleared',
-          'reconciled',
-        ]),
-        approved: faker.datatype.boolean(),
-        flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
-          null,
-        ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
-        transfer_transaction_id: faker.string.uuid(),
-        matched_transaction_id: faker.string.uuid(),
-        import_id: faker.string.uuid(),
-        import_payee_name: faker.person.fullName(),
-        import_payee_name_original: faker.lorem.words(),
-        debt_transaction_type: faker.helpers.arrayElement([
-          'payment',
-          'refund',
-          'fee',
-          'interest',
-          'escrow',
-          'balanceAdjustment',
-          'credit',
-          'charge',
-          null,
-        ]),
-        deleted: faker.datatype.boolean(),
-        account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
+      transactions: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
         ].map((_) => ({
           id: faker.string.uuid(),
-          transaction_id: faker.string.uuid(),
+          date: faker.date.past().toISOString().substring(0, 10),
           amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          transfer_transaction_id: faker.string.uuid(),
+          memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          cleared: faker.helpers.arrayElement([
+            'cleared',
+            'uncleared',
+            'reconciled',
+          ]),
+          approved: faker.datatype.boolean(),
+          flag_color: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+          ]),
+          flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          account_id: faker.string.uuid(),
+          payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          transfer_account_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          transfer_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          matched_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          import_payee_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_payee_name_original: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          debt_transaction_type: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+          ]),
           deleted: faker.datatype.boolean(),
-        })),
-      })),
+          amount_formatted: faker.lorem.words(),
+          amount_currency: faker.number.int(),
+          account_name: faker.person.fullName(),
+          payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          category_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          subtransactions: (() => {
+            const arrayMin = 1;
+            const arrayMax = MAX_ARRAY_LENGTH;
+            const safeMin = Math.min(arrayMin, arrayMax);
+            return [
+              ...new Array(
+                faker.number.int({min: safeMin, max: arrayMax}),
+              ).keys(),
+            ].map((_) => ({
+              id: faker.string.uuid(),
+              transaction_id: faker.string.uuid(),
+              amount: faker.number.int(),
+              memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+              payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+              payee_name: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              category_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              category_name: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              transfer_account_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              transfer_transaction_id: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              deleted: faker.datatype.boolean(),
+              amount_formatted: faker.lorem.words(),
+              amount_currency: faker.number.int(),
+            }));
+          })(),
+        }));
+      })(),
       server_knowledge: faker.number.int(),
     },
   };
@@ -2077,57 +4791,107 @@ export function getGetTransactionsByAccount200Response() {
 export function getGetTransactionsByCategory200Response() {
   return {
     data: {
-      transactions: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        id: faker.string.uuid(),
-        date: faker.date.past().toISOString().substring(0, 10),
-        amount: faker.number.int(),
-        memo: faker.lorem.words(),
-        cleared: faker.helpers.arrayElement([
-          'cleared',
-          'uncleared',
-          'reconciled',
-        ]),
-        approved: faker.datatype.boolean(),
-        flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
-          null,
-        ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
-        transfer_transaction_id: faker.string.uuid(),
-        matched_transaction_id: faker.string.uuid(),
-        import_id: faker.string.uuid(),
-        import_payee_name: faker.person.fullName(),
-        import_payee_name_original: faker.lorem.words(),
-        debt_transaction_type: faker.helpers.arrayElement([
-          'payment',
-          'refund',
-          'fee',
-          'interest',
-          'escrow',
-          'balanceAdjustment',
-          'credit',
-          'charge',
-          null,
-        ]),
-        deleted: faker.datatype.boolean(),
-        type: faker.helpers.arrayElement(['transaction', 'subtransaction']),
-        parent_transaction_id: faker.string.uuid(),
-        account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-      })),
+      transactions: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => ({
+          id: faker.string.uuid(),
+          date: faker.date.past().toISOString().substring(0, 10),
+          amount: faker.number.int(),
+          memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          cleared: faker.helpers.arrayElement([
+            'cleared',
+            'uncleared',
+            'reconciled',
+          ]),
+          approved: faker.datatype.boolean(),
+          flag_color: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+          ]),
+          flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          account_id: faker.string.uuid(),
+          payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          transfer_account_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          transfer_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          matched_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          import_payee_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_payee_name_original: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          debt_transaction_type: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+          ]),
+          deleted: faker.datatype.boolean(),
+          amount_formatted: faker.lorem.words(),
+          amount_currency: faker.number.int(),
+          type: faker.helpers.arrayElement(['transaction', 'subtransaction']),
+          parent_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          account_name: faker.person.fullName(),
+          payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          category_name: faker.person.fullName(),
+        }));
+      })(),
       server_knowledge: faker.number.int(),
     },
   };
@@ -2136,57 +4900,107 @@ export function getGetTransactionsByCategory200Response() {
 export function getGetTransactionsByPayee200Response() {
   return {
     data: {
-      transactions: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        id: faker.string.uuid(),
-        date: faker.date.past().toISOString().substring(0, 10),
-        amount: faker.number.int(),
-        memo: faker.lorem.words(),
-        cleared: faker.helpers.arrayElement([
-          'cleared',
-          'uncleared',
-          'reconciled',
-        ]),
-        approved: faker.datatype.boolean(),
-        flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
-          null,
-        ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
-        transfer_transaction_id: faker.string.uuid(),
-        matched_transaction_id: faker.string.uuid(),
-        import_id: faker.string.uuid(),
-        import_payee_name: faker.person.fullName(),
-        import_payee_name_original: faker.lorem.words(),
-        debt_transaction_type: faker.helpers.arrayElement([
-          'payment',
-          'refund',
-          'fee',
-          'interest',
-          'escrow',
-          'balanceAdjustment',
-          'credit',
-          'charge',
-          null,
-        ]),
-        deleted: faker.datatype.boolean(),
-        type: faker.helpers.arrayElement(['transaction', 'subtransaction']),
-        parent_transaction_id: faker.string.uuid(),
-        account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-      })),
+      transactions: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
+        ].map((_) => ({
+          id: faker.string.uuid(),
+          date: faker.date.past().toISOString().substring(0, 10),
+          amount: faker.number.int(),
+          memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          cleared: faker.helpers.arrayElement([
+            'cleared',
+            'uncleared',
+            'reconciled',
+          ]),
+          approved: faker.datatype.boolean(),
+          flag_color: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+          ]),
+          flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          account_id: faker.string.uuid(),
+          payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          transfer_account_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          transfer_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          matched_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          import_payee_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_payee_name_original: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          debt_transaction_type: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+          ]),
+          deleted: faker.datatype.boolean(),
+          amount_formatted: faker.lorem.words(),
+          amount_currency: faker.number.int(),
+          type: faker.helpers.arrayElement(['transaction', 'subtransaction']),
+          parent_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          account_name: faker.person.fullName(),
+          payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          category_name: faker.person.fullName(),
+        }));
+      })(),
       server_knowledge: faker.number.int(),
     },
   };
@@ -2195,72 +5009,144 @@ export function getGetTransactionsByPayee200Response() {
 export function getGetTransactionsByMonth200Response() {
   return {
     data: {
-      transactions: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        id: faker.string.uuid(),
-        date: faker.date.past().toISOString().substring(0, 10),
-        amount: faker.number.int(),
-        memo: faker.lorem.words(),
-        cleared: faker.helpers.arrayElement([
-          'cleared',
-          'uncleared',
-          'reconciled',
-        ]),
-        approved: faker.datatype.boolean(),
-        flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
-          null,
-        ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
-        transfer_transaction_id: faker.string.uuid(),
-        matched_transaction_id: faker.string.uuid(),
-        import_id: faker.string.uuid(),
-        import_payee_name: faker.person.fullName(),
-        import_payee_name_original: faker.lorem.words(),
-        debt_transaction_type: faker.helpers.arrayElement([
-          'payment',
-          'refund',
-          'fee',
-          'interest',
-          'escrow',
-          'balanceAdjustment',
-          'credit',
-          'charge',
-          null,
-        ]),
-        deleted: faker.datatype.boolean(),
-        account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
+      transactions: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
         ].map((_) => ({
           id: faker.string.uuid(),
-          transaction_id: faker.string.uuid(),
+          date: faker.date.past().toISOString().substring(0, 10),
           amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          transfer_transaction_id: faker.string.uuid(),
+          memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          cleared: faker.helpers.arrayElement([
+            'cleared',
+            'uncleared',
+            'reconciled',
+          ]),
+          approved: faker.datatype.boolean(),
+          flag_color: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+          ]),
+          flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          account_id: faker.string.uuid(),
+          payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          transfer_account_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
+          transfer_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          matched_transaction_id: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_id: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          import_payee_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          import_payee_name_original: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          debt_transaction_type: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'payment',
+              'refund',
+              'fee',
+              'interest',
+              'escrow',
+              'balanceAdjustment',
+              'credit',
+              'charge',
+              null,
+            ]),
+          ]),
           deleted: faker.datatype.boolean(),
-        })),
-      })),
+          amount_formatted: faker.lorem.words(),
+          amount_currency: faker.number.int(),
+          account_name: faker.person.fullName(),
+          payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          category_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          subtransactions: (() => {
+            const arrayMin = 1;
+            const arrayMax = MAX_ARRAY_LENGTH;
+            const safeMin = Math.min(arrayMin, arrayMax);
+            return [
+              ...new Array(
+                faker.number.int({min: safeMin, max: arrayMax}),
+              ).keys(),
+            ].map((_) => ({
+              id: faker.string.uuid(),
+              transaction_id: faker.string.uuid(),
+              amount: faker.number.int(),
+              memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+              payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+              payee_name: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              category_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              category_name: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              transfer_account_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              transfer_transaction_id: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              deleted: faker.datatype.boolean(),
+              amount_formatted: faker.lorem.words(),
+              amount_currency: faker.number.int(),
+            }));
+          })(),
+        }));
+      })(),
       server_knowledge: faker.number.int(),
     },
   };
@@ -2269,65 +5155,109 @@ export function getGetTransactionsByMonth200Response() {
 export function getGetScheduledTransactions200Response() {
   return {
     data: {
-      scheduled_transactions: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        id: faker.string.uuid(),
-        date_first: faker.date.past().toISOString().substring(0, 10),
-        date_next: faker.date.past().toISOString().substring(0, 10),
-        frequency: faker.helpers.arrayElement([
-          'never',
-          'daily',
-          'weekly',
-          'everyOtherWeek',
-          'twiceAMonth',
-          'every4Weeks',
-          'monthly',
-          'everyOtherMonth',
-          'every3Months',
-          'every4Months',
-          'twiceAYear',
-          'yearly',
-          'everyOtherYear',
-        ]),
-        amount: faker.number.int(),
-        memo: faker.lorem.words(),
-        flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
-          null,
-        ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
-        deleted: faker.datatype.boolean(),
-        account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
+      scheduled_transactions: (() => {
+        const arrayMin = 1;
+        const arrayMax = MAX_ARRAY_LENGTH;
+        const safeMin = Math.min(arrayMin, arrayMax);
+        return [
+          ...new Array(faker.number.int({min: safeMin, max: arrayMax})).keys(),
         ].map((_) => ({
           id: faker.string.uuid(),
-          scheduled_transaction_id: faker.string.uuid(),
+          date_first: faker.date.past().toISOString().substring(0, 10),
+          date_next: faker.date.past().toISOString().substring(0, 10),
+          frequency: faker.helpers.arrayElement([
+            'never',
+            'daily',
+            'weekly',
+            'everyOtherWeek',
+            'twiceAMonth',
+            'every4Weeks',
+            'monthly',
+            'everyOtherMonth',
+            'every3Months',
+            'every4Months',
+            'twiceAYear',
+            'yearly',
+            'everyOtherYear',
+          ]),
           amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
+          memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          flag_color: faker.helpers.arrayElement([
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+            faker.helpers.arrayElement([
+              'red',
+              'orange',
+              'yellow',
+              'green',
+              'blue',
+              'purple',
+              '',
+              null,
+            ]),
+          ]),
+          flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          account_id: faker.string.uuid(),
+          payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+          transfer_account_id: faker.helpers.arrayElement([
+            faker.string.uuid(),
+            null,
+          ]),
           deleted: faker.datatype.boolean(),
-        })),
-      })),
+          amount_formatted: faker.lorem.words(),
+          amount_currency: faker.number.int(),
+          account_name: faker.person.fullName(),
+          payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+          category_name: faker.helpers.arrayElement([
+            faker.lorem.words(),
+            null,
+          ]),
+          subtransactions: (() => {
+            const arrayMin = 1;
+            const arrayMax = MAX_ARRAY_LENGTH;
+            const safeMin = Math.min(arrayMin, arrayMax);
+            return [
+              ...new Array(
+                faker.number.int({min: safeMin, max: arrayMax}),
+              ).keys(),
+            ].map((_) => ({
+              id: faker.string.uuid(),
+              scheduled_transaction_id: faker.string.uuid(),
+              amount: faker.number.int(),
+              memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+              payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+              payee_name: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              category_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              category_name: faker.helpers.arrayElement([
+                faker.lorem.words(),
+                null,
+              ]),
+              transfer_account_id: faker.helpers.arrayElement([
+                faker.string.uuid(),
+                null,
+              ]),
+              deleted: faker.datatype.boolean(),
+              amount_formatted: faker.lorem.words(),
+              amount_currency: faker.number.int(),
+            }));
+          })(),
+        }));
+      })(),
       server_knowledge: faker.number.int(),
     },
   };
@@ -2356,42 +5286,75 @@ export function getCreateScheduledTransaction201Response() {
           'everyOtherYear',
         ]),
         amount: faker.number.int(),
-        memo: faker.lorem.words(),
+        memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
         flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+        ]),
+        flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        account_id: faker.string.uuid(),
+        payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        transfer_account_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
           null,
         ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
         deleted: faker.datatype.boolean(),
+        amount_formatted: faker.lorem.words(),
+        amount_currency: faker.number.int(),
         account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          scheduled_transaction_id: faker.string.uuid(),
-          amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          deleted: faker.datatype.boolean(),
-        })),
+        payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        category_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        subtransactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            scheduled_transaction_id: faker.string.uuid(),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            category_name: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            amount_formatted: faker.lorem.words(),
+            amount_currency: faker.number.int(),
+          }));
+        })(),
       },
     },
   };
@@ -2420,42 +5383,75 @@ export function getGetScheduledTransactionById200Response() {
           'everyOtherYear',
         ]),
         amount: faker.number.int(),
-        memo: faker.lorem.words(),
+        memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
         flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+        ]),
+        flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        account_id: faker.string.uuid(),
+        payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        transfer_account_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
           null,
         ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
         deleted: faker.datatype.boolean(),
+        amount_formatted: faker.lorem.words(),
+        amount_currency: faker.number.int(),
         account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          scheduled_transaction_id: faker.string.uuid(),
-          amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          deleted: faker.datatype.boolean(),
-        })),
+        payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        category_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        subtransactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            scheduled_transaction_id: faker.string.uuid(),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            category_name: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            amount_formatted: faker.lorem.words(),
+            amount_currency: faker.number.int(),
+          }));
+        })(),
       },
     },
   };
@@ -2484,42 +5480,75 @@ export function getUpdateScheduledTransaction200Response() {
           'everyOtherYear',
         ]),
         amount: faker.number.int(),
-        memo: faker.lorem.words(),
+        memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
         flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+        ]),
+        flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        account_id: faker.string.uuid(),
+        payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        transfer_account_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
           null,
         ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
         deleted: faker.datatype.boolean(),
+        amount_formatted: faker.lorem.words(),
+        amount_currency: faker.number.int(),
         account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          scheduled_transaction_id: faker.string.uuid(),
-          amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          deleted: faker.datatype.boolean(),
-        })),
+        payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        category_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        subtransactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            scheduled_transaction_id: faker.string.uuid(),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            category_name: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            amount_formatted: faker.lorem.words(),
+            amount_currency: faker.number.int(),
+          }));
+        })(),
       },
     },
   };
@@ -2548,120 +5577,76 @@ export function getDeleteScheduledTransaction200Response() {
           'everyOtherYear',
         ]),
         amount: faker.number.int(),
-        memo: faker.lorem.words(),
+        memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
         flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+          faker.helpers.arrayElement([
+            'red',
+            'orange',
+            'yellow',
+            'green',
+            'blue',
+            'purple',
+            '',
+            null,
+          ]),
+        ]),
+        flag_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        account_id: faker.string.uuid(),
+        payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        category_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+        transfer_account_id: faker.helpers.arrayElement([
+          faker.string.uuid(),
           null,
         ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
         deleted: faker.datatype.boolean(),
+        amount_formatted: faker.lorem.words(),
+        amount_currency: faker.number.int(),
         account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          scheduled_transaction_id: faker.string.uuid(),
-          amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          deleted: faker.datatype.boolean(),
-        })),
+        payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        category_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+        subtransactions: (() => {
+          const arrayMin = 1;
+          const arrayMax = MAX_ARRAY_LENGTH;
+          const safeMin = Math.min(arrayMin, arrayMax);
+          return [
+            ...new Array(
+              faker.number.int({min: safeMin, max: arrayMax}),
+            ).keys(),
+          ].map((_) => ({
+            id: faker.string.uuid(),
+            scheduled_transaction_id: faker.string.uuid(),
+            amount: faker.number.int(),
+            memo: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            payee_id: faker.helpers.arrayElement([faker.string.uuid(), null]),
+            payee_name: faker.helpers.arrayElement([faker.lorem.words(), null]),
+            category_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            category_name: faker.helpers.arrayElement([
+              faker.lorem.words(),
+              null,
+            ]),
+            transfer_account_id: faker.helpers.arrayElement([
+              faker.string.uuid(),
+              null,
+            ]),
+            deleted: faker.datatype.boolean(),
+            amount_formatted: faker.lorem.words(),
+            amount_currency: faker.number.int(),
+          }));
+        })(),
       },
-    },
-  };
-}
-
-export function getUpdateTransactions200Response() {
-  return {
-    data: {
-      transaction_ids: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => faker.string.uuid()),
-      transactions: [
-        ...new Array(faker.number.int({min: 1, max: MAX_ARRAY_LENGTH})).keys(),
-      ].map((_) => ({
-        id: faker.string.uuid(),
-        date: faker.date.past().toISOString().substring(0, 10),
-        amount: faker.number.int(),
-        memo: faker.lorem.words(),
-        cleared: faker.helpers.arrayElement([
-          'cleared',
-          'uncleared',
-          'reconciled',
-        ]),
-        approved: faker.datatype.boolean(),
-        flag_color: faker.helpers.arrayElement([
-          'red',
-          'orange',
-          'yellow',
-          'green',
-          'blue',
-          'purple',
-          '',
-          null,
-        ]),
-        flag_name: faker.person.fullName(),
-        account_id: faker.string.uuid(),
-        payee_id: faker.string.uuid(),
-        category_id: faker.string.uuid(),
-        transfer_account_id: faker.string.uuid(),
-        transfer_transaction_id: faker.string.uuid(),
-        matched_transaction_id: faker.string.uuid(),
-        import_id: faker.string.uuid(),
-        import_payee_name: faker.person.fullName(),
-        import_payee_name_original: faker.lorem.words(),
-        debt_transaction_type: faker.helpers.arrayElement([
-          'payment',
-          'refund',
-          'fee',
-          'interest',
-          'escrow',
-          'balanceAdjustment',
-          'credit',
-          'charge',
-          null,
-        ]),
-        deleted: faker.datatype.boolean(),
-        account_name: faker.person.fullName(),
-        payee_name: faker.person.fullName(),
-        category_name: faker.person.fullName(),
-        subtransactions: [
-          ...new Array(
-            faker.number.int({min: 1, max: MAX_ARRAY_LENGTH}),
-          ).keys(),
-        ].map((_) => ({
-          id: faker.string.uuid(),
-          transaction_id: faker.string.uuid(),
-          amount: faker.number.int(),
-          memo: faker.lorem.words(),
-          payee_id: faker.string.uuid(),
-          payee_name: faker.person.fullName(),
-          category_id: faker.string.uuid(),
-          category_name: faker.person.fullName(),
-          transfer_account_id: faker.string.uuid(),
-          transfer_transaction_id: faker.string.uuid(),
-          deleted: faker.datatype.boolean(),
-        })),
-      })),
-      server_knowledge: faker.number.int(),
     },
   };
 }

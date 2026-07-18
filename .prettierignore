@@ -22,3 +22,7 @@ coverage
 *.log
 
 **/.claude/worktrees/
+
+# Vendored YNAB OpenAPI spec: input to `generate:mocks`, mirrors the upstream
+# source verbatim, so it is not subject to our formatting.
+src/mocks/ynab-openapi.yaml

@@ -29,7 +29,7 @@
     "logs": "tail -f ~/.config/ynab-mcp-deluxe/logs/server.*.log | npx pino-pretty",
     "logs:raw": "tail -f ~/.config/ynab-mcp-deluxe/logs/server.*.log",
     "logs:dir": "ls -la ~/.config/ynab-mcp-deluxe/logs/",
-    "generate:mocks": "curl -sL -o src/mocks/ynab-openapi.yaml https://api.ynab.com/papi/open_api_spec.yaml && npx msw-auto-mock src/mocks/ynab-openapi.yaml -o src/mocks --base-url https://api.ynab.com/v1 --typescript -c 200,201",
+    "generate:mocks": "bun scripts/generate-mocks.ts",
     "lint-base": "eslint --report-unused-disable-directives --max-warnings 0",
     "lint": "bun run lint-base -- .",
     "lint:fix": "bun run lint-base -- --fix .",
