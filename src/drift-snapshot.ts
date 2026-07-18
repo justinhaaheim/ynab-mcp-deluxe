@@ -8,7 +8,7 @@
 
 import type {DriftCheckResult} from './drift-detection.js';
 import type {LocalBudget} from './types.js';
-import type {BudgetDetail} from 'ynab';
+import type {PlanDetail as BudgetDetail} from 'ynab';
 
 import * as fs from 'node:fs/promises';
 import {homedir} from 'node:os';

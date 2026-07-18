@@ -9,17 +9,17 @@
 
 import type {LocalBudget} from './types.js';
 import type {
-  Account,
-  BudgetDetail,
-  Category,
+  AccountBase,
+  CategoryBase,
   CategoryGroup,
-  MonthDetail,
+  MonthDetailBase,
   Payee,
   PayeeLocation,
-  ScheduledSubTransaction,
-  ScheduledTransactionSummary,
-  SubTransaction,
-  TransactionSummary,
+  PlanDetail as BudgetDetail,
+  ScheduledSubTransactionBase,
+  ScheduledTransactionSummaryBase,
+  SubTransactionBase,
+  TransactionSummaryBase,
 } from 'ynab';
 
 /**
@@ -207,11 +207,11 @@ export function mergeEntityArray<T extends EntityWithId>(
  * @returns A new merged array
  */
 export function mergeMonthArray(
-  existing: MonthDetail[],
-  delta: MonthDetail[],
-): MonthDetail[] {
+  existing: MonthDetailBase[],
+  delta: MonthDetailBase[],
+): MonthDetailBase[] {
   // Build a map from existing months using 'month' as key
-  const byMonth = new Map<string, MonthDetail>();
+  const byMonth = new Map<string, MonthDetailBase>();
   for (const month of existing) {
     byMonth.set(month.month, month);
   }
@@ -293,14 +293,14 @@ export function mergeDelta(
     accountByName: new Map(),
 
     // Merge all entity arrays
-    accounts: mergeEntityArray<Account>(
+    accounts: mergeEntityArray<AccountBase>(
       existing.accounts,
       deltaBudget.accounts ?? [],
     ),
     // Budget identity (unchanged)
     budgetId: existing.budgetId,
     budgetName: deltaBudget.name ?? existing.budgetName,
-    categories: mergeEntityArray<Category>(
+    categories: mergeEntityArray<CategoryBase>(
       existing.categories,
       deltaBudget.categories ?? [],
     ),
@@ -325,22 +325,22 @@ export function mergeDelta(
       deltaBudget.payee_locations ?? [],
     ),
     payees: mergeEntityArray<Payee>(existing.payees, deltaBudget.payees ?? []),
-    scheduledSubtransactions: mergeEntityArray<ScheduledSubTransaction>(
+    scheduledSubtransactions: mergeEntityArray<ScheduledSubTransactionBase>(
       existing.scheduledSubtransactions,
       deltaBudget.scheduled_subtransactions ?? [],
     ),
     scheduledSubtransactionsByScheduledTransactionId: new Map(),
-    scheduledTransactions: mergeEntityArray<ScheduledTransactionSummary>(
+    scheduledTransactions: mergeEntityArray<ScheduledTransactionSummaryBase>(
       existing.scheduledTransactions,
       deltaBudget.scheduled_transactions ?? [],
     ),
     serverKnowledge: newServerKnowledge,
-    subtransactions: mergeEntityArray<SubTransaction>(
+    subtransactions: mergeEntityArray<SubTransactionBase>(
       existing.subtransactions,
       deltaBudget.subtransactions ?? [],
     ),
     subtransactionsByTransactionId: new Map(),
-    transactions: mergeEntityArray<TransactionSummary>(
+    transactions: mergeEntityArray<TransactionSummaryBase>(
       existing.transactions,
       deltaBudget.transactions ?? [],
     ),

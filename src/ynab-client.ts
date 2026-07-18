@@ -26,18 +26,24 @@ import type {
 } from './types.js';
 
 import {
-  type AccountType,
   api as YnabApi,
-  type BudgetDetail,
-  type BudgetSummary,
-  type Category,
+  // The cache (LocalBudget) stores the *Base entity variants the plan/budget
+  // detail endpoint returns (nullable-friendly), so enrichment reads *Base.
+  type CategoryBase,
   type CategoryGroupWithCategories,
   type CurrencyFormat,
-  type SubTransaction,
+  // YNAB's API renamed "budgets" to "plans" in v3/v4. We keep "budget" as our
+  // domain term (MCP tool names, YNAB_BUDGET_ID, etc.), so alias at the import.
+  type PlanDetail as BudgetDetail,
+  type PlanSummary as BudgetSummary,
+  // createAccount accepts only the creatable subset (checking/savings/cash/
+  // creditCard/otherAsset/otherLiability), not the full AccountType.
+  type SaveAccountType,
+  type SubTransactionBase,
   TransactionClearedStatus,
   type TransactionDetail,
   type TransactionFlagColor,
-  type TransactionSummary,
+  type TransactionSummaryBase,
   utils,
 } from 'ynab';
 
@@ -236,6 +242,14 @@ interface EntityAnalysis {
   deletedCount: number;
   sampleIds: string[];
 }
+
+// The SDK's CategoryGroupWithCategories nests the non-Base Category[]. Our cache
+// holds CategoryBase (which the plan/budget detail returns), so the joined shape
+// we build and expose carries CategoryBase children instead.
+type CategoryGroupWithCategoryBase = Omit<
+  CategoryGroupWithCategories,
+  'categories'
+> & {categories: CategoryBase[]};
 
 function analyzeEntityArray<T extends {deleted?: boolean; id: string}>(
   items: T[] | undefined,
@@ -626,8 +640,8 @@ class YnabClient {
    */
   async getBudgets(): Promise<EnrichedBudgetSummary[]> {
     if (this.budgets === null) {
-      const response = await this.getApi().budgets.getBudgets();
-      this.budgets = response.data.budgets;
+      const response = await this.getApi().plans.getPlans();
+      this.budgets = response.data.plans;
     }
 
     return this.budgets.map((b) => ({
@@ -790,9 +804,9 @@ class YnabClient {
    */
   private buildCategoryGroupsWithCategories(
     localBudget: LocalBudget,
-  ): CategoryGroupWithCategories[] {
+  ): CategoryGroupWithCategoryBase[] {
     // Group categories by their category_group_id
-    const categoriesByGroupId = new Map<string, Category[]>();
+    const categoriesByGroupId = new Map<string, CategoryBase[]>();
     for (const category of localBudget.categories) {
       const existing = categoriesByGroupId.get(category.category_group_id);
       if (existing !== undefined) {
@@ -903,7 +917,7 @@ class YnabClient {
    * @returns An EnrichedTransaction with resolved names and subtransactions
    */
   private enrichTransactionSummary(
-    tx: TransactionSummary,
+    tx: TransactionSummaryBase,
     localBudget: LocalBudget,
   ): EnrichedTransaction {
     // Look up account name
@@ -924,7 +938,7 @@ class YnabClient {
 
     // Enrich subtransactions with resolved names
     const enrichedSubtransactions: EnrichedSubTransaction[] =
-      subtransactions.map((sub: SubTransaction) => {
+      subtransactions.map((sub: SubTransactionBase) => {
         const subCategory = resolveCategoryInfo(
           sub.category_id,
           sub.category_name,
@@ -1122,7 +1136,7 @@ class YnabClient {
     includeHidden = false,
   ): Promise<{
     flat: EnrichedCategory[];
-    groups: CategoryGroupWithCategories[];
+    groups: CategoryGroupWithCategoryBase[];
   }> {
     const cache = await this.getLocalBudget(budgetId);
 
@@ -1269,9 +1283,9 @@ class YnabClient {
     server_knowledge: number;
   }> {
     const api = this.getApi();
-    const response = await api.budgets.getBudgetById(budgetId);
+    const response = await api.plans.getPlanById(budgetId);
     return {
-      budget: response.data.budget,
+      budget: response.data.plan,
       server_knowledge: response.data.server_knowledge,
     };
   }
@@ -1713,7 +1727,7 @@ class YnabClient {
   async createAccount(
     budgetId: string,
     name: string,
-    type: AccountType,
+    type: SaveAccountType,
     balance: number,
   ): Promise<EnrichedAccount> {
     assertWriteAllowed('create_account');

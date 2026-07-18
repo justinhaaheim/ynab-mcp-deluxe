@@ -3,20 +3,24 @@
  */
 
 import type {
-  Account,
-  BudgetDetail,
-  Category,
+  // The budget/plan detail endpoint returns the *Base entity variants, which
+  // (unlike the standalone Account/Category/... types) allow null on nullable
+  // fields — matching how YNAB's delta sync signals cleared values. The cache
+  // stores exactly what that endpoint returns, so it uses the *Base types.
+  AccountBase,
+  CategoryBase,
   CategoryGroup,
   CurrencyFormat,
-  MonthDetail,
+  MonthDetailBase,
   Payee,
   PayeeLocation,
-  ScheduledSubTransaction,
-  ScheduledTransactionSummary,
-  SubTransaction,
+  PlanDetail as BudgetDetail,
+  ScheduledSubTransactionBase,
+  ScheduledTransactionSummaryBase,
+  SubTransactionBase,
   TransactionClearedStatus,
   TransactionFlagColor,
-  TransactionSummary,
+  TransactionSummaryBase,
 } from 'ynab';
 
 // ============================================================================
@@ -52,18 +56,18 @@ export type FlagColorInput = Exclude<TransactionFlagColor, ''>;
  */
 export interface LocalBudget {
   // O(1) lookup maps (rebuilt after each sync)
-  accountById: Map<string, Account>;
-  accountByName: Map<string, Account>;
+  accountById: Map<string, AccountBase>;
+  accountByName: Map<string, AccountBase>;
 
   // Budget data (from full budget endpoint - using SDK types directly)
-  accounts: Account[];
+  accounts: AccountBase[];
   // Budget identity
   budgetId: string;
   budgetName: string;
-  categories: Category[];
+  categories: CategoryBase[];
   // lowercase name → account
-  categoryById: Map<string, Category>;
-  categoryByName: Map<string, Category>;
+  categoryById: Map<string, CategoryBase>;
+  categoryByName: Map<string, CategoryBase>;
   // lowercase name → category
   categoryGroupNameById: Map<string, string>;
   categoryGroups: CategoryGroup[];
@@ -73,26 +77,26 @@ export interface LocalBudget {
   // Sync metadata
   lastSyncedAt: Date;
 
-  months: MonthDetail[];
+  months: MonthDetailBase[];
   needsSync: boolean;
   payeeById: Map<string, Payee>;
   payeeLocations: PayeeLocation[];
   payees: Payee[];
-  scheduledSubtransactions: ScheduledSubTransaction[];
+  scheduledSubtransactions: ScheduledSubTransactionBase[];
   // O(1) lookup: scheduled_transaction_id → scheduled subtransactions[]
   scheduledSubtransactionsByScheduledTransactionId: Map<
     string,
-    ScheduledSubTransaction[]
+    ScheduledSubTransactionBase[]
   >;
 
-  scheduledTransactions: ScheduledTransactionSummary[];
+  scheduledTransactions: ScheduledTransactionSummaryBase[];
   // True after write operations
   serverKnowledge: number;
-  subtransactions: SubTransaction[];
+  subtransactions: SubTransactionBase[];
   // O(1) lookup: transaction_id → subtransactions[]
-  subtransactionsByTransactionId: Map<string, SubTransaction[]>;
+  subtransactionsByTransactionId: Map<string, SubTransactionBase[]>;
 
-  transactions: TransactionSummary[];
+  transactions: TransactionSummaryBase[];
 }
 
 /**

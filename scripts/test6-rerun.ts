@@ -24,8 +24,8 @@ async function run(): Promise<void> {
   const todayStr = new Date().toISOString().slice(0, 10);
 
   console.log('Fetching baseline...');
-  const baseResp = await api.budgets.getBudgetById(BUDGET_ID);
-  const baseBudget = baseResp.data.budget;
+  const baseResp = await api.plans.getPlanById(BUDGET_ID);
+  const baseBudget = baseResp.data.plan;
   const baseKnowledge = baseResp.data.server_knowledge;
   console.log('Baseline serverKnowledge: ' + String(baseKnowledge));
 
@@ -69,8 +69,8 @@ async function run(): Promise<void> {
   console.log('Created split transaction: ' + txnId);
 
   console.log('Fetching new baseline after creation...');
-  const midResp = await api.budgets.getBudgetById(BUDGET_ID);
-  const midBudget = midResp.data.budget;
+  const midResp = await api.plans.getPlanById(BUDGET_ID);
+  const midBudget = midResp.data.plan;
   const midKnowledge = midResp.data.server_knowledge;
   console.log('Mid serverKnowledge: ' + String(midKnowledge));
 
@@ -78,8 +78,8 @@ async function run(): Promise<void> {
   await api.transactions.deleteTransaction(BUDGET_ID, txnId);
 
   console.log('Fetching delta (previously crashed here)...');
-  const deltaResp = await api.budgets.getBudgetById(BUDGET_ID, midKnowledge);
-  const deltaBudget = deltaResp.data.budget;
+  const deltaResp = await api.plans.getPlanById(BUDGET_ID, midKnowledge);
+  const deltaBudget = deltaResp.data.plan;
   const deltaKnowledge = deltaResp.data.server_knowledge;
   console.log('Delta serverKnowledge: ' + String(deltaKnowledge));
   console.log('Delta fetch SUCCEEDED (was crashing before patch)');
@@ -117,8 +117,8 @@ async function run(): Promise<void> {
   );
 
   console.log('Fetching full budget (truth)...');
-  const fullResp = await api.budgets.getBudgetById(BUDGET_ID);
-  const fullBudget = fullResp.data.budget;
+  const fullResp = await api.plans.getPlanById(BUDGET_ID);
+  const fullBudget = fullResp.data.plan;
   const fullKnowledge = fullResp.data.server_knowledge;
   console.log('Full serverKnowledge: ' + String(fullKnowledge));
 
