@@ -79,6 +79,7 @@
     ]
   },
   "dependencies": {
+    "@justinhaaheim/justin-sdk": "github:justinhaaheim/justin-sdk#main",
     "@metrichor/jmespath": "^0.3.1",
     "deep-diff": "^1.0.2",
     "fastmcp": "4.7.0",
