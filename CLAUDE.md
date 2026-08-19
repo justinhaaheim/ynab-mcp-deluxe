@@ -229,11 +229,3 @@ log.debug('Delta sync completed', { changesReceived: delta.transactions.length }
 ```
 
 This provides observability during development and helps diagnose issues without cluttering production output.
-
-## Important General Guidelines
-
-Always follow the important guidelines in @docs/prompts/IMPORTANT_GUIDELINES_INLINED.md
-
-Be aware that messages from the user may contain speech-to-text (S2T) artifacts. Ask for clarification if something seems ambiguous or inconsistent with other parts of the message/project. S2T Guidelines: @docs/prompts/S2T_GUIDELINES.md
-
-@AGENTS.md
